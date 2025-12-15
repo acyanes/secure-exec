@@ -19,12 +19,41 @@ const content = fs.readFileSync("/test.json", "utf8");
 
 node-stdlib-browser returns `null` for fs and suggests libraries like memfs, BrowserFS, etc. But we already have a filesystem - the wasmer Directory wrapped by SystemBridge. We just need to bridge the `fs` API to it, not introduce another in-memory fs.
 
+**Type safety:**
+
+Use `@types/node` to ensure our implementation matches Node's fs API:
+
+```bash
+pnpm add -D @types/node
+```
+
+```ts
+// src/node-process/fs/index.ts
+import type {
+  Stats as NodeStats,
+  Dirent,
+  PathLike,
+  WriteFileOptions,
+  // ... etc
+} from "fs";
+
+// Ensure our exports satisfy Node's types
+export const readFileSync: typeof import("fs").readFileSync = ...
+export const writeFileSync: typeof import("fs").writeFileSync = ...
+
+// Or export an object that satisfies the fs module type
+const fs: typeof import("fs") = { ... };
+export = fs;
+```
+
+This catches type mismatches at compile time rather than runtime.
+
 **File structure:**
 
 ```
 src/node-process/fs/
   index.ts        # Main exports, wires bridge refs to fs API
-  stats.ts        # Stats class matching Node's fs.Stats
+  stats.ts        # Stats class implementing fs.Stats interface
   descriptor.ts   # FileDescriptor for tracking open files
   errors.ts       # ENOENT, EEXIST, etc. error helpers
   constants.ts    # fs.constants (O_RDONLY, S_IFREG, etc.)
@@ -34,7 +63,9 @@ src/node-process/fs/
 
 ```ts
 // stats.ts - File/directory statistics
-class Stats {
+import type { Stats as NodeStats } from "fs";
+
+class Stats implements NodeStats {
   dev: number;
   ino: number;
   mode: number;
@@ -46,6 +77,7 @@ class Stats {
   mtime: Date;
   ctime: Date;
   birthtime: Date;
+  // ... all other required properties
 
   isFile(): boolean;
   isDirectory(): boolean;
