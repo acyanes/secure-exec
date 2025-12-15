@@ -281,7 +281,7 @@ expect(result).toBe(3600000);
 
 VirtualMachine.spawn() checks the command name and routes to the appropriate runtime:
 - `node` → NodeProcess (run JS in isolated-vm)
-- linux commands (ls, cat, echo, etc.) → WasixInstance
+- linux commands (ls, cat, bash, etc.) → WasixInstance (loads [node shim .webc](scratch/wasmer-node-shim/))
 
 ```ts
 import { VirtualMachine } from "./vm";
@@ -296,6 +296,15 @@ expect(result.stdout).toBe("hello from node\n");
 // this routes to WasixInstance
 const lsResult = await vm.spawn("ls", ["/"]);
 expect(lsResult.stdout).toContain("script.js");
+
+// shell script that calls node - bash runs in WASM, node bridges to NodeProcess via IPC
+vm.writeFile("/test.sh", `#!/bin/bash
+echo "starting"
+node /script.js
+echo "done"
+`);
+const shResult = await vm.spawn("bash", ["/test.sh"]);
+expect(shResult.stdout).toContain("hello from node");
 ```
 
 ## future work
