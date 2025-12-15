@@ -54,66 +54,126 @@ const result = await proc.run(`
 expect(result).toBe("hello");
 ```
 
-## 2. package bundler with dependencies
+## 2. dynamic CommonJS module resolution
 
-Replace the simple single-file bundler with esbuild-based bundling that handles internal requires.
+Replace the simple single-file loader with proper CommonJS resolution that loads files on demand.
 
 **Current limitation:**
 ```ts
 // This fails because jsonfile requires graceful-fs, universalify, etc.
+// The current loader only loads the entry file, not internal requires
 const jsonfile = require("jsonfile");
 ```
 
 **Implementation approach:**
 
-Use esbuild to bundle packages with their dependencies:
+Make `require()` resolve and load files dynamically, just like Node.js does:
 
 ```ts
-import * as esbuild from "esbuild";
+// In the isolate's require() function:
+globalThis.require = function require(request) {
+  // Resolve the request to an absolute path
+  const resolved = _resolveModule.applySyncPromise(undefined, [
+    request,
+    _currentModule.dirname  // context for relative imports
+  ]);
 
-export async function bundlePackage(
-  packageName: string,
-  bridge: SystemBridge
-): Promise<string | null> {
-  const entryPath = await findPackageEntry(packageName, bridge);
-  if (!entryPath) return null;
+  if (!resolved) {
+    throw new Error('Cannot find module: ' + request);
+  }
 
-  // Create a virtual filesystem plugin for esbuild
-  const virtualFsPlugin: esbuild.Plugin = {
-    name: "virtual-fs",
-    setup(build) {
-      build.onResolve({ filter: /.*/ }, (args) => {
-        // Resolve relative imports within the package
-        // Resolve node_modules imports
-      });
-      build.onLoad({ filter: /.*/ }, async (args) => {
-        // Load file content from SystemBridge
-        const content = await bridge.readFile(args.path);
-        return { contents: content, loader: "js" };
-      });
-    },
-  };
+  // Check cache
+  if (_moduleCache[resolved]) {
+    return _moduleCache[resolved].exports;
+  }
 
-  const result = await esbuild.build({
-    entryPoints: [entryPath],
-    bundle: true,
-    format: "cjs",
-    platform: "node",
-    write: false,
-    plugins: [virtualFsPlugin],
-    // Externalize node builtins - they're handled by polyfills
-    external: ["fs", "path", "events", "util", "stream", "buffer", ...],
-  });
+  // Load the file content
+  const source = _loadFile.applySyncPromise(undefined, [resolved]);
 
-  return wrapAsModule(result.outputFiles[0].text);
+  // Create module object
+  const module = { exports: {}, filename: resolved, dirname: dirname(resolved) };
+  _moduleCache[resolved] = module;
+
+  // Track current module for nested requires
+  const prevModule = _currentModule;
+  _currentModule = module;
+
+  // Wrap and execute
+  const wrapper = new Function('exports', 'require', 'module', '__filename', '__dirname', source);
+  wrapper(module.exports, require, module, resolved, dirname(resolved));
+
+  _currentModule = prevModule;
+  return module.exports;
+};
+```
+
+**Host-side resolution (in NodeProcess):**
+
+```ts
+const resolveModuleRef = new ivm.Reference(
+  async (request: string, fromDir: string): Promise<string | null> => {
+    // 1. If starts with ./ or ../, resolve relative to fromDir
+    if (request.startsWith('./') || request.startsWith('../')) {
+      return resolveRelative(request, fromDir, bridge);
+    }
+
+    // 2. If it's a builtin (path, fs, etc.), return special marker
+    if (isBuiltin(request)) {
+      return `builtin:${request}`;
+    }
+
+    // 3. Otherwise, walk up node_modules
+    return resolveNodeModules(request, fromDir, bridge);
+  }
+);
+
+async function resolveRelative(request: string, fromDir: string, bridge: SystemBridge) {
+  const candidates = [
+    path.join(fromDir, request),
+    path.join(fromDir, request + '.js'),
+    path.join(fromDir, request + '.json'),
+    path.join(fromDir, request, 'index.js'),
+  ];
+  for (const candidate of candidates) {
+    if (await bridge.exists(candidate)) return candidate;
+  }
+  return null;
+}
+
+async function resolveNodeModules(request: string, fromDir: string, bridge: SystemBridge) {
+  // Handle subpath: "lodash/get" -> packageName="lodash", subpath="get"
+  const [packageName, ...subpathParts] = request.split('/');
+  const subpath = subpathParts.join('/');
+
+  let dir = fromDir;
+  while (dir !== '/') {
+    const packageDir = path.join(dir, 'node_modules', packageName);
+    const pkgJsonPath = path.join(packageDir, 'package.json');
+
+    if (await bridge.exists(pkgJsonPath)) {
+      if (subpath) {
+        // Direct file reference: require("lodash/get")
+        return resolveRelative('./' + subpath, packageDir, bridge);
+      }
+      // Main entry point
+      const pkgJson = JSON.parse(await bridge.readFile(pkgJsonPath));
+      const main = pkgJson.main || 'index.js';
+      return path.join(packageDir, main);
+    }
+
+    dir = path.dirname(dir);
+  }
+  return null;
 }
 ```
 
-**Key considerations:**
-- Externalize node builtins (fs, path, etc.) - these are provided by polyfills
-- Handle circular dependencies (esbuild does this)
-- Cache bundled results aggressively
-- May need to handle JSON imports
+**Key features:**
+- Relative imports (`./utils`, `../lib/foo`) resolve from current file
+- Bare imports (`lodash`) walk up node_modules directories
+- Subpath imports (`lodash/get`) work
+- JSON files loaded and parsed automatically
+- Module cache prevents re-execution
+- Circular dependencies handled (partial exports visible)
 
 **Test:**
 ```ts
