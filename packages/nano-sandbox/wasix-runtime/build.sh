@@ -10,9 +10,9 @@ echo "==> Preparing npm@${NPM_VERSION} for bundling..."
 # Clean up previous build artifacts
 rm -rf npm usr etc
 
-# Download and extract npm
+# Download npm tarball directly from registry
 echo "    Downloading npm@${NPM_VERSION}..."
-npm pack "npm@${NPM_VERSION}" --pack-destination /tmp --silent
+curl -sL "https://registry.npmjs.org/npm/-/npm-${NPM_VERSION}.tgz" -o /tmp/npm-${NPM_VERSION}.tgz
 tar -xzf "/tmp/npm-${NPM_VERSION}.tgz"
 mv package npm
 
