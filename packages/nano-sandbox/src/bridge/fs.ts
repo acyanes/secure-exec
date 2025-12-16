@@ -142,6 +142,285 @@ class Dirent implements nodeFs.Dirent<string> {
   }
 }
 
+// WriteStream class for createWriteStream
+// This provides a type-safe implementation that satisfies nodeFs.WriteStream
+// We use 'as' assertion at the return site since the full interface is complex
+class WriteStream {
+  // WriteStream-specific properties
+  bytesWritten: number = 0;
+  path: string | Buffer;
+  pending: boolean = false;
+
+  // Writable stream properties
+  writable: boolean = true;
+  writableAborted: boolean = false;
+  writableEnded: boolean = false;
+  writableFinished: boolean = false;
+  writableHighWaterMark: number = 16384;
+  writableLength: number = 0;
+  writableObjectMode: boolean = false;
+  writableCorked: number = 0;
+  destroyed: boolean = false;
+  closed: boolean = false;
+  errored: Error | null = null;
+  writableNeedDrain: boolean = false;
+
+  // Internal state
+  private _chunks: Uint8Array[] = [];
+  private _listeners: Map<string | symbol, Array<(...args: unknown[]) => void>> = new Map();
+
+  constructor(filePath: string | Buffer, _options?: { encoding?: BufferEncoding; flags?: string; mode?: number }) {
+    this.path = filePath;
+  }
+
+  // WriteStream-specific methods
+  close(callback?: (err?: NodeJS.ErrnoException | null) => void): void {
+    if (this.closed) {
+      if (callback) Promise.resolve().then(() => callback(null));
+      return;
+    }
+    this.closed = true;
+    this.writable = false;
+    Promise.resolve().then(() => {
+      this.emit("close");
+      if (callback) callback(null);
+    });
+  }
+
+  // Writable methods
+  write(chunk: unknown, encodingOrCallback?: BufferEncoding | ((error: Error | null | undefined) => void), callback?: (error: Error | null | undefined) => void): boolean {
+    if (this.writableEnded || this.destroyed) {
+      const err = new Error("write after end");
+      if (typeof encodingOrCallback === "function") {
+        Promise.resolve().then(() => encodingOrCallback(err));
+      } else if (callback) {
+        Promise.resolve().then(() => callback(err));
+      }
+      return false;
+    }
+
+    let data: Uint8Array;
+    if (typeof chunk === "string") {
+      data = Buffer.from(chunk, typeof encodingOrCallback === "string" ? encodingOrCallback : "utf8");
+    } else if (Buffer.isBuffer(chunk)) {
+      data = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    } else if (chunk instanceof Uint8Array) {
+      data = chunk;
+    } else {
+      data = Buffer.from(String(chunk));
+    }
+
+    this._chunks.push(data);
+    this.bytesWritten += data.length;
+    this.writableLength += data.length;
+
+    const cb = typeof encodingOrCallback === "function" ? encodingOrCallback : callback;
+    if (cb) Promise.resolve().then(() => cb(null));
+
+    return true;
+  }
+
+  end(chunkOrCb?: unknown, encodingOrCallback?: BufferEncoding | (() => void), callback?: () => void): this {
+    if (this.writableEnded) return this;
+
+    let cb: (() => void) | undefined;
+    if (typeof chunkOrCb === "function") {
+      cb = chunkOrCb as () => void;
+    } else if (typeof encodingOrCallback === "function") {
+      cb = encodingOrCallback;
+      if (chunkOrCb !== undefined && chunkOrCb !== null) {
+        this.write(chunkOrCb);
+      }
+    } else {
+      cb = callback;
+      if (chunkOrCb !== undefined && chunkOrCb !== null) {
+        this.write(chunkOrCb, encodingOrCallback);
+      }
+    }
+
+    this.writableEnded = true;
+
+    // Concatenate and write all chunks
+    const totalLength = this._chunks.reduce((sum, c) => sum + c.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const c of this._chunks) {
+      result.set(c, offset);
+      offset += c.length;
+    }
+
+    // Write to filesystem
+    const pathStr = typeof this.path === "string" ? this.path : this.path.toString();
+    fs.writeFileSync(pathStr, result);
+
+    this.writable = false;
+    this.writableFinished = true;
+    this.writableLength = 0;
+
+    Promise.resolve().then(() => {
+      this.emit("finish");
+      this.emit("close");
+      this.closed = true;
+      if (cb) cb();
+    });
+
+    return this;
+  }
+
+  setDefaultEncoding(_encoding: BufferEncoding): this {
+    return this;
+  }
+
+  cork(): void {
+    this.writableCorked++;
+  }
+
+  uncork(): void {
+    if (this.writableCorked > 0) this.writableCorked--;
+  }
+
+  destroy(error?: Error): this {
+    if (this.destroyed) return this;
+    this.destroyed = true;
+    this.writable = false;
+    if (error) {
+      this.errored = error;
+      Promise.resolve().then(() => {
+        this.emit("error", error);
+        this.emit("close");
+        this.closed = true;
+      });
+    } else {
+      Promise.resolve().then(() => {
+        this.emit("close");
+        this.closed = true;
+      });
+    }
+    return this;
+  }
+
+  // Internal methods (required by Writable interface but not typically called directly)
+  _write(_chunk: unknown, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    callback();
+  }
+
+  _destroy(_error: Error | null, callback: (error?: Error | null) => void): void {
+    callback();
+  }
+
+  _final(callback: (error?: Error | null) => void): void {
+    callback();
+  }
+
+  // EventEmitter methods
+  addListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    return this.on(event, listener);
+  }
+
+  on(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const listeners = this._listeners.get(event) || [];
+    listeners.push(listener);
+    this._listeners.set(event, listeners);
+    return this;
+  }
+
+  once(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const wrapper = (...args: unknown[]) => {
+      this.removeListener(event, wrapper);
+      listener(...args);
+    };
+    return this.on(event, wrapper);
+  }
+
+  prependListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const listeners = this._listeners.get(event) || [];
+    listeners.unshift(listener);
+    this._listeners.set(event, listeners);
+    return this;
+  }
+
+  prependOnceListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const wrapper = (...args: unknown[]) => {
+      this.removeListener(event, wrapper);
+      listener(...args);
+    };
+    return this.prependListener(event, wrapper);
+  }
+
+  removeListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const listeners = this._listeners.get(event);
+    if (listeners) {
+      const idx = listeners.indexOf(listener);
+      if (idx !== -1) listeners.splice(idx, 1);
+    }
+    return this;
+  }
+
+  off(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    return this.removeListener(event, listener);
+  }
+
+  removeAllListeners(event?: string | symbol): this {
+    if (event !== undefined) {
+      this._listeners.delete(event);
+    } else {
+      this._listeners.clear();
+    }
+    return this;
+  }
+
+  emit(event: string | symbol, ...args: unknown[]): boolean {
+    const listeners = this._listeners.get(event);
+    if (listeners && listeners.length > 0) {
+      listeners.slice().forEach(l => l(...args));
+      return true;
+    }
+    return false;
+  }
+
+  listeners(event: string | symbol): Function[] {
+    return [...(this._listeners.get(event) || [])];
+  }
+
+  rawListeners(event: string | symbol): Function[] {
+    return this.listeners(event);
+  }
+
+  listenerCount(event: string | symbol): number {
+    return (this._listeners.get(event) || []).length;
+  }
+
+  eventNames(): (string | symbol)[] {
+    return [...this._listeners.keys()];
+  }
+
+  getMaxListeners(): number {
+    return 10;
+  }
+
+  setMaxListeners(_n: number): this {
+    return this;
+  }
+
+  // Pipe methods (minimal implementation)
+  pipe<T extends NodeJS.WritableStream>(destination: T, _options?: { end?: boolean }): T {
+    return destination;
+  }
+
+  unpipe(_destination?: NodeJS.WritableStream): this {
+    return this;
+  }
+
+  // Additional required methods
+  compose<T extends NodeJS.ReadableStream>(_stream: T | Iterable<T> | AsyncIterable<T>, _options?: { signal: AbortSignal }): T {
+    throw new Error("compose not implemented in sandbox");
+  }
+
+  [Symbol.asyncDispose](): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 // Parse flags string to number
 function parseFlags(flags: OpenMode): number {
   if (typeof flags === "number") return flags;
@@ -913,6 +1192,39 @@ const fs = {
     }
   },
 
+  // writev - write multiple buffers to a file descriptor
+  writev(
+    fd: number,
+    buffers: ArrayBufferView[],
+    position?: number | null | ((err: Error | null, bytesWritten?: number, buffers?: ArrayBufferView[]) => void),
+    callback?: (err: Error | null, bytesWritten?: number, buffers?: ArrayBufferView[]) => void
+  ): void {
+    if (typeof position === "function") {
+      callback = position;
+      position = null;
+    }
+    if (callback) {
+      try {
+        const bytesWritten = fs.writevSync(fd, buffers, position as number | null);
+        callback(null, bytesWritten, buffers);
+      } catch (e) {
+        callback(e as Error);
+      }
+    }
+  },
+
+  writevSync(fd: number, buffers: ArrayBufferView[], position?: number | null): number {
+    let totalBytesWritten = 0;
+    for (const buffer of buffers) {
+      const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      totalBytesWritten += fs.writeSync(fd, bytes, 0, bytes.length, position);
+      if (position !== null && position !== undefined) {
+        position += bytes.length;
+      }
+    }
+    return totalBytesWritten;
+  },
+
   fstat(fd: number, callback?: NodeCallback<Stats>): Promise<Stats> | void {
     if (callback) {
       try {
@@ -1071,76 +1383,14 @@ const fs = {
   },
 
   createWriteStream(
-    path: string,
-    _options?: { encoding?: string }
-  ): {
-    write: (chunk: string | Uint8Array) => boolean;
-    end: (chunk?: string | Uint8Array) => void;
-    on: (event: string, handler: () => void) => unknown;
-    once: (event: string, handler: () => void) => unknown;
-    emit: (event: string) => boolean;
-    writable: boolean;
-  } {
-    // Collect chunks as binary data to preserve binary content
-    const chunks: Uint8Array[] = [];
-    const listeners: Record<string, Array<() => void>> = {};
-    const stream = {
-      writable: true,
-      write(chunk: string | Uint8Array): boolean {
-        if (typeof chunk === "string") {
-          chunks.push(Buffer.from(chunk, "utf8"));
-        } else {
-          chunks.push(new Uint8Array(chunk));
-        }
-        return true;
-      },
-      end(chunk?: string | Uint8Array): void {
-        if (chunk) stream.write(chunk);
-        // Concatenate all chunks into a single buffer
-        const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-        const result = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const c of chunks) {
-          result.set(c, offset);
-          offset += c.length;
-        }
-        // Write as binary data
-        fs.writeFileSync(path, result);
-        stream.writable = false;
-        // Emit finish and close events
-        // Use Promise.resolve() for async microtask instead of setTimeout
-        // as setTimeout may not work properly in isolated-vm
-        Promise.resolve().then(() => {
-          stream.emit("finish");
-          stream.emit("close");
-        });
-      },
-      on(event: string, handler: () => void) {
-        if (!listeners[event]) listeners[event] = [];
-        listeners[event].push(handler);
-        return stream;
-      },
-      once(event: string, handler: () => void) {
-        const wrapper = () => {
-          handler();
-          // Remove after first call
-          const idx = listeners[event]?.indexOf(wrapper);
-          if (idx !== undefined && idx !== -1) {
-            listeners[event].splice(idx, 1);
-          }
-        };
-        return stream.on(event, wrapper);
-      },
-      emit(event: string): boolean {
-        const handlers = listeners[event];
-        if (handlers) {
-          handlers.forEach((h) => h());
-          return true;
-        }
-        return false;
-      },
-    };
-    return stream;
+    path: nodeFs.PathLike,
+    options?: BufferEncoding | { encoding?: BufferEncoding; flags?: string; mode?: number }
+  ): nodeFs.WriteStream {
+    const pathStr = typeof path === "string" ? path : path instanceof Buffer ? path.toString() : String(path);
+    const opts = typeof options === "string" ? { encoding: options } : options;
+    // Use type assertion since our WriteStream has all the methods npm needs
+    // but not all the complex overloaded signatures of the full Node.js interface
+    return new WriteStream(pathStr, opts) as unknown as nodeFs.WriteStream;
   },
 
   // Watch (no-op)
