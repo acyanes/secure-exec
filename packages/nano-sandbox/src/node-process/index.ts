@@ -1511,27 +1511,25 @@ export class NodeProcess {
         await this.setupDynamicImport(context, jail);
 
         // Wrap code to capture the result in a global and await if it's a promise
+        // For async IIFEs, we need to capture the Promise returned by the IIFE
         const wrappedCode = `
-          globalThis.__scriptResult__ = (function() {
-            ${transformedCode}
-          })();
+          globalThis.__scriptResult__ = eval(${JSON.stringify(transformedCode)});
         `;
         const script = await this.isolate.compileScript(wrappedCode);
         await script.run(context);
 
         // If the script returned a promise, await it
-        await context.eval(`
-          (async function() {
-            if (globalThis.__scriptResult__ && typeof globalThis.__scriptResult__.then === 'function') {
-              try {
-                await globalThis.__scriptResult__;
-              } catch (e) {
-                // Let error handling below catch this
-                throw e;
-              }
-            }
-          })()
-        `);
+        // Return the promise directly so isolated-vm can properly await it with { promise: true }
+        const hasPromise = await context.eval(
+          `globalThis.__scriptResult__ && typeof globalThis.__scriptResult__.then === 'function'`,
+          { copy: true }
+        );
+        console.log('[exec] hasPromise:', hasPromise);
+        if (hasPromise) {
+          console.log('[exec] Awaiting script Promise...');
+          await context.eval(`globalThis.__scriptResult__`, { promise: true });
+          console.log('[exec] Script Promise resolved');
+        }
       }
 
       // Get exit code from process.exitCode if set

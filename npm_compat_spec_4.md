@@ -1,13 +1,17 @@
 # npm Compatibility Spec - Phase 4: Remaining Issues
 
-## Current State After Phase 4a
+## Current State After Phase 4b
 
 Phase 4a implemented:
 - URL module patching for npm-package-arg file: URL resolution
 - zlib constructor classes (Gzip, Gunzip, Deflate, Inflate, etc.)
 - Improved zlib stream interface methods
 
-All 8 npm CLI tests pass, with progress on remaining issues:
+Phase 4b implemented:
+- Fixed isolated-vm Promise awaiting (exec() now properly awaits async IIFE results)
+- Fixed existsSync for binary files (uses readFile instead of readTextFile)
+- Added callback support to zlib _processChunk/_handle._processChunk
+- minizlib compatibility: _processChunk is called directly on ZlibStream instance
 
 | Command | Status | Notes |
 |---------|--------|-------|
@@ -17,8 +21,8 @@ All 8 npm CLI tests pass, with progress on remaining issues:
 | npm init -y | ✅ Working | Creates package.json |
 | npm ping | ✅ Working | Registry connectivity |
 | npm view | ✅ Working | Fetches package info |
-| npm pack | ⚠️ Partial | File URL fixed, tar/close error |
-| npm install | ⚠️ Partial | Network works, no node_modules |
+| npm pack | ⚠️ Hangs | Gzip works, cacache writes, then hangs |
+| npm install | ⚠️ Hangs | Network works, no node_modules |
 
 ## Fixed Issues
 
@@ -54,39 +58,85 @@ The patched URL constructor detects relative file: URLs without a base and autom
 - Added stream interface methods: close(), destroy(), flush(), pause(), resume()
 - Proper event handling for 'close', 'finish', 'end', 'error'
 
+### 3. Fixed isolated-vm Promise Awaiting
+
+**Problem:** The exec() method wasn't properly awaiting async IIFE results from scripts. The Promise was detected but never actually awaited across the isolate boundary.
+
+**Solution:**
+```javascript
+// Fixed code - properly captures async IIFE result using eval
+const wrappedCode = `
+  globalThis.__scriptResult__ = eval(${JSON.stringify(transformedCode)});
+`;
+const script = await this.isolate.compileScript(wrappedCode);
+await script.run(context);
+
+// If the script returned a promise, await it with { promise: true }
+const hasPromise = await context.eval(
+  `globalThis.__scriptResult__ && typeof globalThis.__scriptResult__.then === 'function'`,
+  { copy: true }
+);
+if (hasPromise) {
+  await context.eval(`globalThis.__scriptResult__`, { promise: true });
+}
+```
+
+### 4. Fixed existsSync for Binary Files
+
+**Problem:** `exists()` in SystemBridge used `readTextFile()` which fails for binary content.
+
+**Solution:** Changed to use `readFile()` which works for both text and binary:
+```typescript
+async exists(path: string): Promise<boolean> {
+  try {
+    await this.directory.readFile(path);  // Works for binary
+    return true;
+  } catch {
+    // Try as directory...
+  }
+}
+```
+
 ## Remaining Issues
 
-### 1. npm pack - tar/close Error
+### 1. npm pack - Stream Pipeline Hang
 
 **Symptom:**
 ```
-npm error Cannot read properties of undefined (reading 'close')
+[ZLIB] Gzip constructor called
+(gzip produces 5143 bytes, cacache writes 5139 bytes to temp file)
+Promise was abandoned
 ```
 
-**Status:** File URL issue fixed, but tar operations fail.
+**Status:** File URL fixed, gzip works, cacache writes, then **hangs** waiting for something.
 
-**Root Cause Analysis:**
+**Root Cause Analysis (Phase 4b Investigation):**
 
-The error occurs after zlib is set up, during tar stream operations. npm uses `node-tar` which:
-1. Creates a Pack stream
-2. Pipes through gzip
-3. Writes to file
+Detailed tracing revealed:
+1. Gzip compression works correctly (5143 bytes output)
+2. minizlib calls `_processChunk` directly on ZlibStream instance (not `_handle`)
+3. Data flows through to cacache (writes to temp file successfully)
+4. Then npm's internal Promise chain **hangs indefinitely**
+5. No rename/move of temp file occurs
+6. "Promise was abandoned" indicates the main Promise never resolves
 
-The 'close' error suggests either:
-1. A stream doesn't have a proper `close()` method
-2. An undefined value is being accessed where a stream is expected
-3. The tar module expects Node.js native stream features we don't provide
+The issue is likely:
+1. **Missing stream.pipeline/finished** - cacache/ssri may wait for stream events
+2. **Event loop issues in isolated-vm** - Promise.resolve().then() microtasks may not flush
+3. **Missing stream 'end'/'finish' events** - Some callback or event never fires
+
+**Key Finding:** Writing a binary file before npm pack causes npm to fail early (sees corrupted tarball), avoiding the hang. This is not a real fix, just causes earlier failure.
 
 **Files to investigate:**
-- `node_modules/npm/node_modules/tar/lib/pack.js`
-- `node_modules/npm/node_modules/tar/lib/write-entry.js`
-- Our fs.createWriteStream implementation
+- `node_modules/npm/node_modules/cacache/lib/content/write.js`
+- `node_modules/npm/node_modules/ssri/lib/index.js`
+- How stream.finished() is used by cacache
 
 **Potential Solutions:**
 
-1. **Improve fs.createWriteStream** - Ensure it returns a proper stream with close() method
-2. **Mock tar module** - Override tar.create to use simplified packing
-3. **Add stream.finished/pipeline polyfills** - npm may use stream utilities
+1. **Add stream.pipeline/finished polyfills** - These may be waiting for completion
+2. **Investigate isolated-vm microtask handling** - Ensure Promise.resolve().then() works
+3. **Mock cacache operations** - Override to use synchronous file operations
 
 ### 2. npm install - Incomplete Installation
 

@@ -1,3 +1,5 @@
+- npm i -g
+    - so pnpm works
 - prompt about major missing pieces (specifically in node binding)
 - get cc working
 - get npm working

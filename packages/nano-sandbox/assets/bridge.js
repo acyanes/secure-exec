@@ -2016,9 +2016,14 @@ var bridge = (() => {
       const pathStr = typeof path === "number" ? fdTable.get(path)?.path : toPathString(path);
       if (!pathStr) throw createFsError("EBADF", "EBADF: bad file descriptor", "read");
       const encoding = typeof options === "string" ? options : options?.encoding;
-      let content;
       try {
-        content = _fs.readFile.applySyncPromise(void 0, [pathStr]);
+        if (encoding) {
+          const content = _fs.readFile.applySyncPromise(void 0, [pathStr]);
+          return content;
+        } else {
+          const base64Content = _fs.readFileBinary.applySyncPromise(void 0, [pathStr]);
+          return import_buffer.Buffer.from(base64Content, "base64");
+        }
       } catch (err) {
         const errMsg = err.message || String(err);
         if (errMsg.includes("entry not found") || errMsg.includes("not found")) {
@@ -2031,14 +2036,19 @@ var bridge = (() => {
         }
         throw err;
       }
-      if (encoding) return content;
-      return import_buffer.Buffer.from(content);
     },
     writeFileSync(file, data, _options) {
       const pathStr = typeof file === "number" ? fdTable.get(file)?.path : toPathString(file);
       if (!pathStr) throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
-      const content = typeof data === "string" ? data : ArrayBuffer.isView(data) ? new TextDecoder().decode(data) : String(data);
-      _fs.writeFile.applySync(void 0, [pathStr, content]);
+      if (typeof data === "string") {
+        _fs.writeFile.applySync(void 0, [pathStr, data]);
+      } else if (ArrayBuffer.isView(data)) {
+        const uint8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        const base64 = import_buffer.Buffer.from(uint8).toString("base64");
+        _fs.writeFileBinary.applySync(void 0, [pathStr, base64]);
+      } else {
+        _fs.writeFile.applySync(void 0, [pathStr, String(data)]);
+      }
     },
     appendFileSync(path, data, options) {
       const existing = fs.existsSync(path) ? fs.readFileSync(path, "utf8") : "";
@@ -2605,17 +2615,28 @@ var bridge = (() => {
       };
     },
     createWriteStream(path, _options) {
-      let content = "";
+      const chunks = [];
       const listeners = {};
       const stream = {
         writable: true,
         write(chunk) {
-          content += typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+          if (typeof chunk === "string") {
+            chunks.push(import_buffer.Buffer.from(chunk, "utf8"));
+          } else {
+            chunks.push(new Uint8Array(chunk));
+          }
           return true;
         },
         end(chunk) {
           if (chunk) stream.write(chunk);
-          fs.writeFileSync(path, content);
+          const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+          const result = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const c of chunks) {
+            result.set(c, offset);
+            offset += c.length;
+          }
+          fs.writeFileSync(path, result);
           stream.writable = false;
           Promise.resolve().then(() => {
             stream.emit("finish");

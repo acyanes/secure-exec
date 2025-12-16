@@ -171,6 +171,7 @@ class WriteStream {
 
   constructor(filePath: string | Buffer, _options?: { encoding?: BufferEncoding; flags?: string; mode?: number }) {
     this.path = filePath;
+    console.log('[WriteStream] Created for path:', filePath);
   }
 
   // WriteStream-specific methods
@@ -189,6 +190,8 @@ class WriteStream {
 
   // Writable methods
   write(chunk: unknown, encodingOrCallback?: BufferEncoding | ((error: Error | null | undefined) => void), callback?: (error: Error | null | undefined) => void): boolean {
+    const chunkLen = chunk && typeof (chunk as { length?: number }).length === 'number' ? (chunk as { length: number }).length : 0;
+    console.log('[WriteStream] write() called, chunk length:', chunkLen);
     if (this.writableEnded || this.destroyed) {
       const err = new Error("write after end");
       if (typeof encodingOrCallback === "function") {
@@ -221,6 +224,7 @@ class WriteStream {
   }
 
   end(chunkOrCb?: unknown, encodingOrCallback?: BufferEncoding | (() => void), callback?: () => void): this {
+    console.log('[WriteStream] end() called, total chunks:', this._chunks.length, 'bytesWritten:', this.bytesWritten);
     if (this.writableEnded) return this;
 
     let cb: (() => void) | undefined;
@@ -597,6 +601,7 @@ const fs = {
   ): void {
     const pathStr = typeof file === "number" ? fdTable.get(file)?.path : toPathString(file);
     if (!pathStr) throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
+    // fs.writeFileSync
 
     if (typeof data === "string") {
       // Text mode - use text write
@@ -663,7 +668,8 @@ const fs = {
   },
 
   existsSync(path: PathLike): boolean {
-    return _fs.exists.applySyncPromise(undefined, [toPathString(path)]);
+    const pathStr = toPathString(path);
+    return _fs.exists.applySyncPromise(undefined, [pathStr]);
   },
 
   statSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
@@ -724,6 +730,7 @@ const fs = {
     const pathStr = toPathString(path);
     const numFlags = parseFlags(flags);
     const fd = nextFd++;
+    // fs.openSync
 
     // Check if file exists
     const exists = fs.existsSync(path);
@@ -801,6 +808,7 @@ const fs = {
     if (!entry) {
       throw createFsError("EBADF", "EBADF: bad file descriptor, write", "write");
     }
+    // fs.writeSync
     if (!canWrite(entry.flags)) {
       throw createFsError("EBADF", "EBADF: bad file descriptor, write", "write");
     }
@@ -1103,7 +1111,8 @@ const fs = {
     }
     if (callback) {
       try {
-        callback(null, fs.openSync(path, flags, mode));
+        const fd = fs.openSync(path, flags, mode);
+        callback(null, fd);
       } catch (e) {
         callback(e as Error);
       }

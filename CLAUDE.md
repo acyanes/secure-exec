@@ -3,3 +3,4 @@
 - do not use timeouts more than 10s
 - use tsx to execute typescript code as needed
 - wasmer sdk docs at https://wasmerio.github.io/wasmer-js/
+- all bridge types that get injected in to ivm (isolated-vm) need to be defined in packages/nano-sandbox/src/bridge/. they also need to be fully type checked agianst @tyeps/node with either `impelments` or `satisfies` or the equivalent

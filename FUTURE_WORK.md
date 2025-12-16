@@ -12,6 +12,7 @@
 - net, dgram, http, https - not available (no network in sandbox)
 - worker_threads - not available
 - crypto - limited polyfill (not full Node.js crypto)
+- read Node.js API docs (https://nodejs.org/api/all.json) and write a script to verify import/exports match official Node.js modules (could use TypeScript types)
 
 ## WASM/bash
 - batch commands hang - `bash -c "echo hello"` never returns from instance.wait() in WASI/WASIX bash. interactive mode works fine

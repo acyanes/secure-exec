@@ -115,8 +115,8 @@ export class SystemBridge {
    */
   async exists(path: string): Promise<boolean> {
     try {
-      // Try to read as file first
-      await this.directory.readTextFile(path);
+      // Try to read as file first (using readFile for both text and binary)
+      await this.directory.readFile(path);
       return true;
     } catch {
       try {

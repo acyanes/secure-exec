@@ -301,9 +301,18 @@ export function generateZlibPolyfill(): string {
     }
     crc ^= 0xffffffff;
 
+    // Write trailer manually since Buffer.writeUInt32LE may not exist
     const trailer = Buffer.alloc(8);
-    trailer.writeUInt32LE(crc, 0);
-    trailer.writeUInt32LE(len, 4);
+    // CRC32 in little-endian
+    trailer[0] = crc & 0xff;
+    trailer[1] = (crc >>> 8) & 0xff;
+    trailer[2] = (crc >>> 16) & 0xff;
+    trailer[3] = (crc >>> 24) & 0xff;
+    // Size in little-endian
+    trailer[4] = len & 0xff;
+    trailer[5] = (len >>> 8) & 0xff;
+    trailer[6] = (len >>> 16) & 0xff;
+    trailer[7] = (len >>> 24) & 0xff;
 
     return Buffer.concat([header, stored, trailer]);
   }
@@ -354,6 +363,111 @@ export function generateZlibPolyfill(): string {
       this._closed = false;
       this.readable = true;
       this.writable = true;
+
+      // _handle is needed for minizlib compatibility
+      // minizlib accesses _handle.close and _handle._processChunk
+      const self = this;
+      this._handle = {
+        close: function() {
+          // No-op - cleanup handled by the stream
+        },
+        _processChunk: function(chunk, flushFlag, cb) {
+          // Synchronous processing for minizlib
+          const result = self._processChunkSync(chunk, flushFlag);
+          if (cb) {
+            // Async mode - call callback with result
+            Promise.resolve().then(() => cb(null, result));
+          }
+          return result;
+        },
+        reset: function() {
+          // Reset the stream state
+          self._chunks = [];
+          self._finished = false;
+        },
+        // Make it EventEmitter-like for error handling
+        on: function() { return this; },
+        once: function() { return this; },
+        removeAllListeners: function() { return this; },
+        emit: function() { return false; }
+      };
+    }
+
+    // _processChunk is called directly by minizlib on the zlib instance
+    // This is the main synchronous compression/decompression method
+    _processChunk(chunk, flushFlag, cb) {
+      const result = this._processChunkSync(chunk, flushFlag);
+      if (cb) {
+        // Async mode - call callback with result
+        Promise.resolve().then(() => cb(null, result));
+      }
+      return result;
+    }
+
+    // Synchronous chunk processing implementation
+    _processChunkSync(chunk, flushFlag) {
+      // Add chunk to buffer
+      if (chunk && chunk.length > 0) {
+        this._chunks.push(chunk);
+      }
+
+      // Process on any flush flag >= Z_SYNC_FLUSH (2)
+      // Z_NO_FLUSH = 0, Z_PARTIAL_FLUSH = 1, Z_SYNC_FLUSH = 2, Z_FULL_FLUSH = 3, Z_FINISH = 4
+      if (flushFlag >= 2) {
+        try {
+          const input = Buffer.concat(this._chunks);
+          let result;
+
+          switch (this._mode) {
+            case 'gunzip':
+              result = gunzipSync(input);
+              break;
+            case 'gzip':
+              result = gzipSync(input);
+              break;
+            case 'inflate':
+              result = inflateSync(input);
+              break;
+            case 'deflate':
+              result = deflateSync(input);
+              break;
+            case 'inflateRaw':
+              result = inflateRawSync(input);
+              break;
+            case 'deflateRaw':
+              result = deflateRawSync(input);
+              break;
+            default:
+              result = Buffer.alloc(0);
+          }
+
+          this._chunks = [];
+          const listenerCount = this._listeners['data'] ? this._listeners['data'].length : 0;
+          // Debug disabled: console.log('[ZLIB] Result length:', result ? result.length : 0, 'flushFlag:', flushFlag);
+          // Ensure result is a proper Buffer
+          if (result && !Buffer.isBuffer(result)) {
+            console.log('[ZLIB] Converting result to Buffer');
+            result = Buffer.from(result);
+          }
+          return result;
+        } catch (err) {
+          console.log('[ZLIB] Error:', err.message);
+          throw err;
+        }
+      }
+
+      // For non-final flushes, return empty buffer
+      return Buffer.alloc(0);
+    }
+
+    // reset method that minizlib may call
+    reset() {
+      this._chunks = [];
+      this._finished = false;
+      if (this._handle && this._handle.reset) {
+        // Already handled by internal state reset
+      }
+      return this;
     }
 
     on(event, handler) {
@@ -396,6 +510,7 @@ export function generateZlibPolyfill(): string {
     }
 
     emit(event, ...args) {
+      // Debug disabled for stream events
       if (this._listeners[event]) {
         this._listeners[event].forEach(h => h(...args));
         return true;
@@ -408,12 +523,15 @@ export function generateZlibPolyfill(): string {
         callback = encoding;
         encoding = undefined;
       }
+      const chunkLen = chunk ? chunk.length : 0;
+      console.log('[ZLIB] write() called on', this._mode, 'chunkLen:', chunkLen);
       this._chunks.push(chunk);
       if (callback) Promise.resolve().then(callback);
       return true;
     }
 
     end(chunk, encoding, callback) {
+      console.log('[ZLIB] end() called on', this._mode, 'chunk:', chunk ? chunk.length : 'none');
       if (typeof chunk === 'function') {
         callback = chunk;
         chunk = undefined;
@@ -468,6 +586,7 @@ export function generateZlibPolyfill(): string {
     }
 
     close(callback) {
+      console.log('[ZLIB] close() called on', this._mode);
       this._closed = true;
       this.writable = false;
       this.readable = false;
@@ -537,6 +656,7 @@ export function generateZlibPolyfill(): string {
     constructor(options) {
       super('gzip');
       this._options = options || {};
+      console.log('[ZLIB] Gzip constructor called');
     }
   }
 
