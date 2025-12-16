@@ -1046,6 +1046,86 @@ export class NodeProcess {
             }
           }
 
+          // Patch zlib module for minizlib compatibility
+          // minizlib (used by npm's tar) calls this._handle._processChunk(data, flushFlag)
+          // browserify-zlib has _processChunk on the instance, not on _handle
+          if (name === 'zlib') {
+            const zlibClasses = ['Gzip', 'Gunzip', 'Deflate', 'Inflate', 'DeflateRaw', 'InflateRaw', 'Unzip'];
+
+            zlibClasses.forEach(function(className) {
+              const OrigClass = result[className];
+              if (!OrigClass) return;
+
+              // Wrap the constructor to patch _handle
+              const PatchedClass = function PatchedZlibClass(opts) {
+                const instance = new OrigClass(opts);
+
+                // Ensure _handle exists and has _processChunk
+                if (instance._handle) {
+                  if (typeof instance._handle._processChunk !== 'function' && typeof instance._processChunk === 'function') {
+                    instance._handle._processChunk = instance._processChunk.bind(instance);
+                  }
+                } else if (typeof instance._processChunk === 'function') {
+                  // Create _handle if it doesn't exist
+                  instance._handle = {
+                    _processChunk: instance._processChunk.bind(instance)
+                  };
+                }
+
+                return instance;
+              };
+
+              // Copy static properties and prototype
+              Object.keys(OrigClass).forEach(function(key) {
+                PatchedClass[key] = OrigClass[key];
+              });
+              PatchedClass.prototype = OrigClass.prototype;
+
+              result[className] = PatchedClass;
+
+              // Also patch the create* factory function
+              const createFn = 'create' + className;
+              const origCreate = result[createFn];
+              if (origCreate) {
+                result[createFn] = function(opts) {
+                  return new PatchedClass(opts);
+                };
+              }
+            });
+          }
+
+          // Patch stream module to add stream.promises namespace
+          // stream-browserify doesn't include promises, but npm's cacache uses stream.promises.pipeline
+          if (name === 'stream') {
+            if (!result.promises) {
+              // Create promisified versions of pipeline and finished
+              const origPipeline = result.pipeline;
+              const origFinished = result.finished;
+
+              result.promises = {
+                pipeline: function promisePipeline() {
+                  const streams = Array.from(arguments);
+                  return new Promise((resolve, reject) => {
+                    // pipeline(source, ...transforms, destination, callback)
+                    // The callback should be the last arg for non-promise version
+                    origPipeline.apply(null, streams.concat([function(err) {
+                      if (err) reject(err);
+                      else resolve();
+                    }]));
+                  });
+                },
+                finished: function promiseFinished(stream, options) {
+                  return new Promise((resolve, reject) => {
+                    origFinished(stream, options || {}, function(err) {
+                      if (err) reject(err);
+                      else resolve();
+                    });
+                  });
+                }
+              };
+            }
+          }
+
           // Patch path module with win32/posix if missing
           // path-browserify provides posix but not win32, npm expects both
           if (name === 'path') {

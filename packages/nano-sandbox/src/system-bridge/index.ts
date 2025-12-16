@@ -149,9 +149,9 @@ export class SystemBridge {
   async stat(path: string): Promise<StatInfo> {
     const now = Date.now();
 
-    // Try to read as file first
+    // Try to read as file first - use binary read to support all file types
     try {
-      const content = await this.directory.readTextFile(path);
+      const content = await this.directory.readFile(path);
       return {
         mode: S_IFREG | 0o644,
         size: content.length,

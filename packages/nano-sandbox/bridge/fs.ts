@@ -142,6 +142,268 @@ class Dirent implements nodeFs.Dirent<string> {
   }
 }
 
+// ReadStream class for createReadStream
+// Provides a proper readable stream implementation that works with stream.pipeline
+class ReadStream {
+  // ReadStream-specific properties
+  bytesRead: number = 0;
+  path: string | Buffer;
+  pending: boolean = true;
+
+  // Readable stream properties
+  readable: boolean = true;
+  readableAborted: boolean = false;
+  readableDidRead: boolean = false;
+  readableEncoding: BufferEncoding | null = null;
+  readableEnded: boolean = false;
+  readableFlowing: boolean | null = null;
+  readableHighWaterMark: number = 65536;
+  readableLength: number = 0;
+  readableObjectMode: boolean = false;
+  destroyed: boolean = false;
+  closed: boolean = false;
+  errored: Error | null = null;
+
+  // Internal state
+  private _content: Buffer | null = null;
+  private _position: number = 0;
+  private _listeners: Map<string | symbol, Array<(...args: unknown[]) => void>> = new Map();
+  private _started: boolean = false;
+
+  constructor(filePath: string | Buffer, private _options?: { encoding?: BufferEncoding; start?: number; end?: number; highWaterMark?: number }) {
+    this.path = filePath;
+    if (_options?.encoding) {
+      this.readableEncoding = _options.encoding;
+    }
+    if (_options?.highWaterMark) {
+      this.readableHighWaterMark = _options.highWaterMark;
+    }
+  }
+
+  private _loadContent(): Buffer {
+    if (this._content === null) {
+      const pathStr = typeof this.path === 'string' ? this.path : this.path.toString();
+      this._content = fs.readFileSync(pathStr) as Buffer;
+      this.pending = false;
+    }
+    return this._content;
+  }
+
+  // Start reading - called when 'data' listener is added or resume() is called
+  private _startReading(): void {
+    if (this._started || this.destroyed) return;
+    this._started = true;
+    this.readableFlowing = true;
+
+    Promise.resolve().then(() => {
+      try {
+        const content = this._loadContent();
+        this.readableDidRead = true;
+
+        // Determine start/end positions
+        const start = this._options?.start ?? 0;
+        const end = this._options?.end ?? content.length;
+        const chunk = content.slice(start, end);
+
+        this.bytesRead = chunk.length;
+
+        // Emit data event
+        this.emit('data', chunk);
+
+        // Emit end and close
+        Promise.resolve().then(() => {
+          this.readable = false;
+          this.readableEnded = true;
+          this.emit('end');
+          Promise.resolve().then(() => {
+            this.closed = true;
+            this.emit('close');
+          });
+        });
+      } catch (err) {
+        this.errored = err as Error;
+        this.emit('error', err);
+        this.destroy(err as Error);
+      }
+    });
+  }
+
+  // Event handling
+  on(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    if (!this._listeners.has(event)) {
+      this._listeners.set(event, []);
+    }
+    this._listeners.get(event)!.push(listener);
+
+    // Start reading when 'data' listener is added (flowing mode)
+    if (event === 'data' && !this._started) {
+      this._startReading();
+    }
+
+    return this;
+  }
+
+  once(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const wrapper = (...args: unknown[]): void => {
+      this.off(event, wrapper);
+      listener(...args);
+    };
+    (wrapper as { _originalListener?: typeof listener })._originalListener = listener;
+    return this.on(event, wrapper);
+  }
+
+  off(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    const listeners = this._listeners.get(event);
+    if (listeners) {
+      const idx = listeners.findIndex(
+        fn => fn === listener || (fn as { _originalListener?: typeof listener })._originalListener === listener
+      );
+      if (idx !== -1) listeners.splice(idx, 1);
+    }
+    return this;
+  }
+
+  removeListener(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    return this.off(event, listener);
+  }
+
+  removeAllListeners(event?: string | symbol): this {
+    if (event) {
+      this._listeners.delete(event);
+    } else {
+      this._listeners.clear();
+    }
+    return this;
+  }
+
+  emit(event: string | symbol, ...args: unknown[]): boolean {
+    const listeners = this._listeners.get(event);
+    if (listeners && listeners.length > 0) {
+      listeners.slice().forEach(fn => fn(...args));
+      return true;
+    }
+    return false;
+  }
+
+  // Readable methods
+  read(_size?: number): Buffer | string | null {
+    if (this.readableEnded || this.destroyed) return null;
+
+    try {
+      const content = this._loadContent();
+      const start = this._options?.start ?? 0;
+      const end = this._options?.end ?? content.length;
+      const chunk = content.slice(start, end);
+
+      this.bytesRead = chunk.length;
+      this.readableDidRead = true;
+      this.readable = false;
+      this.readableEnded = true;
+
+      // Schedule end event
+      Promise.resolve().then(() => {
+        this.emit('end');
+        Promise.resolve().then(() => {
+          this.closed = true;
+          this.emit('close');
+        });
+      });
+
+      return this.readableEncoding ? chunk.toString(this.readableEncoding) : chunk;
+    } catch (err) {
+      this.errored = err as Error;
+      this.emit('error', err);
+      return null;
+    }
+  }
+
+  pipe<T extends NodeJS.WritableStream>(destination: T, _options?: { end?: boolean }): T {
+    const content = this._loadContent();
+    const start = this._options?.start ?? 0;
+    const end = this._options?.end ?? content.length;
+    const chunk = content.slice(start, end);
+
+    this.bytesRead = chunk.length;
+    this.readableDidRead = true;
+
+    if (typeof destination.write === 'function') {
+      destination.write(chunk as unknown as string);
+    }
+    if (typeof destination.end === 'function') {
+      Promise.resolve().then(() => destination.end());
+    }
+
+    this.readable = false;
+    this.readableEnded = true;
+    this.closed = true;
+
+    Promise.resolve().then(() => {
+      this.emit('end');
+      this.emit('close');
+    });
+
+    return destination;
+  }
+
+  unpipe(_destination?: NodeJS.WritableStream): this {
+    return this;
+  }
+
+  pause(): this {
+    this.readableFlowing = false;
+    return this;
+  }
+
+  resume(): this {
+    this.readableFlowing = true;
+    if (!this._started) {
+      this._startReading();
+    }
+    return this;
+  }
+
+  setEncoding(encoding: BufferEncoding): this {
+    this.readableEncoding = encoding;
+    return this;
+  }
+
+  destroy(error?: Error): this {
+    if (this.destroyed) return this;
+    this.destroyed = true;
+    this.readable = false;
+    if (error) {
+      this.errored = error;
+      this.emit('error', error);
+    }
+    this.emit('close');
+    this.closed = true;
+    return this;
+  }
+
+  close(callback?: (err?: Error | null) => void): void {
+    if (this.closed) {
+      if (callback) Promise.resolve().then(() => callback(null));
+      return;
+    }
+    this.closed = true;
+    this.readable = false;
+    this.destroyed = true;
+    Promise.resolve().then(() => {
+      this.emit('close');
+      if (callback) callback(null);
+    });
+  }
+
+  // Symbol.asyncIterator for async iteration
+  async *[Symbol.asyncIterator](): AsyncIterator<Buffer | string> {
+    const content = this._loadContent();
+    const start = this._options?.start ?? 0;
+    const end = this._options?.end ?? content.length;
+    const chunk = content.slice(start, end);
+    yield this.readableEncoding ? chunk.toString(this.readableEncoding) : chunk;
+  }
+}
+
 // WriteStream class for createWriteStream
 // This provides a type-safe implementation that satisfies nodeFs.WriteStream
 // We use 'as' assertion at the return site since the full interface is complex
@@ -1364,31 +1626,14 @@ const fs = {
   ),
 
   createReadStream(
-    path: string,
-    options?: { encoding?: Encoding }
-  ): {
-    on: (event: string, handler: (data?: unknown) => void) => unknown;
-    pipe: <T extends { write: (data: unknown) => void; end: () => void }>(dest: T) => T;
-  } {
-    // Basic readable stream simulation
-    const encoding: Encoding = options?.encoding ?? "utf8";
-    const content = fs.readFileSync(path, { encoding });
-    return {
-      on(event: string, handler: (data?: unknown) => void) {
-        if (event === "data") {
-          setTimeout(() => handler(content), 0);
-        } else if (event === "end") {
-          setTimeout(() => handler(), 0);
-        }
-        // error event - no error
-        return this;
-      },
-      pipe<T extends { write: (data: unknown) => void; end: () => void }>(dest: T): T {
-        dest.write(content);
-        dest.end();
-        return dest;
-      },
-    };
+    path: nodeFs.PathLike,
+    options?: BufferEncoding | { encoding?: BufferEncoding; start?: number; end?: number; highWaterMark?: number }
+  ): nodeFs.ReadStream {
+    const pathStr = typeof path === "string" ? path : path instanceof Buffer ? path.toString() : String(path);
+    const opts = typeof options === "string" ? { encoding: options } : options;
+    // Use type assertion since our ReadStream has all the methods npm needs
+    // but not all the complex overloaded signatures of the full Node.js interface
+    return new ReadStream(pathStr, opts) as unknown as nodeFs.ReadStream;
   },
 
   createWriteStream(
