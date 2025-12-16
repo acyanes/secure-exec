@@ -1,5 +1,5 @@
 {
-  "name": "nano-sandbox",
+  "name": "nanosandbox",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/vm/index.js",

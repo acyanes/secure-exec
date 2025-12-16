@@ -1,5 +1,5 @@
 {
-	"name": "nano-sandbox",
+	"name": "nanosandbox",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -10,7 +10,7 @@
 		"test": "turbo run test",
 		"test:watch": "turbo run test:watch",
 		"dev": "turbo run dev",
-		"shell": "pnpm build -F nano-sandbox && pnpm --filter @nano-sandbox/terminal start"
+		"shell": "pnpm build -F nanosandbox && pnpm --filter @nanosandbox/terminal start"
 	},
 	"devDependencies": {
 		"@types/node": "^22.10.2",

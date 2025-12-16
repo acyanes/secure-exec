@@ -1,5 +1,5 @@
 {
-  "name": "@nano-sandbox/ivm-bridge",
+  "name": "@nanosandbox/ivm-bridge",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/bridge.js",

@@ -1,11 +1,11 @@
 {
-  "name": "@nano-sandbox/terminal",
+  "name": "@nanosandbox/terminal",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "nano-sandbox": "./dist/cli.js"
+    "nanosandbox": "./dist/cli.js"
   },
   "exports": {
     ".": {

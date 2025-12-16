@@ -2,6 +2,22 @@ import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import { init, Directory } from "@wasmer/sdk/node";
 import { NodeProcess, type NetworkAdapter, type CommandExecutor } from "./index.js";
 
+/**
+ * Create a directory and all its parent directories
+ */
+async function mkdirp(dir: Directory, path: string): Promise<void> {
+  const parts = path.split("/").filter(Boolean);
+  let currentPath = "";
+  for (const part of parts) {
+    currentPath += "/" + part;
+    try {
+      await dir.createDir(currentPath);
+    } catch {
+      // Directory may already exist
+    }
+  }
+}
+
 describe("NodeProcess", () => {
   let proc: NodeProcess;
 
@@ -118,8 +134,7 @@ describe("NodeProcess", () => {
       const bridge = dir;
 
       // Create a simple mock package
-      await bridge.createDir("/node_modules");
-      await bridge.createDir("/node_modules/my-pkg");
+      await mkdirp(bridge, "/node_modules/my-pkg");
       await bridge.writeFile(
         "/node_modules/my-pkg/package.json",
         JSON.stringify({ name: "my-pkg", main: "index.js" })
@@ -143,7 +158,7 @@ describe("NodeProcess", () => {
       const bridge = dir;
 
       // Package without explicit main
-      await bridge.createDir("/node_modules/simple-pkg");
+      await mkdirp(bridge, "/node_modules/simple-pkg");
       await bridge.writeFile(
         "/node_modules/simple-pkg/package.json",
         JSON.stringify({ name: "simple-pkg" })
@@ -167,7 +182,7 @@ describe("NodeProcess", () => {
       const bridge = dir;
 
       // Even if path exists in node_modules, polyfill should be used
-      await bridge.createDir("/node_modules/path");
+      await mkdirp(bridge, "/node_modules/path");
       await bridge.writeFile(
         "/node_modules/path/package.json",
         JSON.stringify({ name: "path", main: "index.js" })
@@ -191,7 +206,7 @@ describe("NodeProcess", () => {
       const dir = new Directory();
       const bridge = dir;
 
-      await bridge.createDir("/node_modules/late-pkg");
+      await mkdirp(bridge, "/node_modules/late-pkg");
       await bridge.writeFile(
         "/node_modules/late-pkg/package.json",
         JSON.stringify({ name: "late-pkg", main: "index.js" })
@@ -239,7 +254,7 @@ describe("NodeProcess", () => {
       const dir = new Directory();
       const bridge = dir;
 
-      await bridge.createDir("/src/utils");
+      await mkdirp(bridge, "/src/utils");
       await bridge.writeFile("/src/config.js", `module.exports = { name: 'test' };`);
       await bridge.writeFile(
         "/src/utils/reader.js",
@@ -275,7 +290,7 @@ describe("NodeProcess", () => {
       const bridge = dir;
 
       // Create a package with internal dependencies
-      await bridge.createDir("/node_modules/my-lib");
+      await mkdirp(bridge, "/node_modules/my-lib");
       await bridge.writeFile(
         "/node_modules/my-lib/package.json",
         JSON.stringify({ name: "my-lib", main: "index.js" })
@@ -302,7 +317,7 @@ describe("NodeProcess", () => {
       const dir = new Directory();
       const bridge = dir;
 
-      await bridge.createDir("/node_modules/toolkit");
+      await mkdirp(bridge, "/node_modules/toolkit");
       await bridge.writeFile(
         "/node_modules/toolkit/package.json",
         JSON.stringify({ name: "toolkit", main: "index.js" })
@@ -1891,7 +1906,7 @@ describe("NodeProcess", () => {
       const directory = dir;
       // Create directories first (wasmer Directory doesn't auto-create parents)
       await directory.createDir("/app");
-      await directory.createDir("/app/lib");
+      await mkdirp(directory, "/app/lib");
       await directory.writeFile("/app/lib/util.js", "module.exports = { name: 'util' };");
       await directory.writeFile("/app/package.json", "{}");
 
@@ -1950,7 +1965,7 @@ describe("NodeProcess", () => {
       const dir = new Directory();
       const directory = dir;
       await directory.createDir("/app");
-      await directory.createDir("/app/lib");
+      await mkdirp(directory, "/app/lib");
       await directory.writeFile("/app/lib/util.js", "module.exports = {};");
 
       proc = new NodeProcess({ directory });
@@ -2128,9 +2143,9 @@ describe("NodeProcess", () => {
 
       // Create a typical npm package structure
       await directory.createDir("/app");
-      await directory.createDir("/app/node_modules");
-      await directory.createDir("/app/node_modules/my-lib");
-      await directory.createDir("/app/lib");
+      await mkdirp(directory, "/app/node_modules");
+      await mkdirp(directory, "/app/node_modules/my-lib");
+      await mkdirp(directory, "/app/lib");
 
       // package.json
       await directory.writeFile("/app/package.json", JSON.stringify({
@@ -2362,7 +2377,7 @@ describe("NodeProcess", () => {
 
       // Create plugins in /app/plugins (relative to /app/config.json)
       await directory.createDir("/app");
-      await directory.createDir("/app/plugins");
+      await mkdirp(directory, "/app/plugins");
       await directory.writeFile("/app/plugins/plugin-a.js", `
         module.exports = { name: 'plugin-a', type: 'a' };
       `);
@@ -2408,8 +2423,8 @@ describe("NodeProcess", () => {
 
       // Setup a simpler package structure
       await directory.createDir("/project");
-      await directory.createDir("/project/node_modules");
-      await directory.createDir("/project/node_modules/chalk");
+      await mkdirp(directory, "/project/node_modules");
+      await mkdirp(directory, "/project/node_modules/chalk");
 
       await directory.writeFile("/project/package.json", JSON.stringify({
         name: "integration-test",
