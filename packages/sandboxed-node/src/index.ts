@@ -1799,6 +1799,20 @@ export class NodeProcess {
 				await this.setupRequire(context, jail);
 				await context.eval("globalThis.module = { exports: {} };");
 
+				// Set up __filename and __dirname if a file path is provided
+				// This is critical for relative require() calls to work correctly
+				if (filePath) {
+					const dirname = filePath.includes("/")
+						? filePath.substring(0, filePath.lastIndexOf("/")) || "/"
+						: "/";
+					await context.eval(`
+						globalThis.__filename = ${JSON.stringify(filePath)};
+						globalThis.__dirname = ${JSON.stringify(dirname)};
+						globalThis._currentModule.dirname = ${JSON.stringify(dirname)};
+						globalThis._currentModule.filename = ${JSON.stringify(filePath)};
+					`);
+				}
+
 				// Transform dynamic import() to __dynamicImport()
 				const transformedCode = transformDynamicImport(code);
 

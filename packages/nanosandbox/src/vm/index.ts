@@ -272,6 +272,7 @@ node /opt/npm/bin/npx-cli.js "$@"
 
 		// Parse node args to extract code
 		let code = "";
+		let scriptPath: string | undefined;
 
 		for (let i = 0; i < args.length; i++) {
 			if (args[i] === "-e" || args[i] === "--eval") {
@@ -279,7 +280,7 @@ node /opt/npm/bin/npx-cli.js "$@"
 				break;
 			} else if (!args[i].startsWith("-")) {
 				// It's a script file path
-				const scriptPath = args[i];
+				scriptPath = args[i];
 				try {
 					code = await this.bridge.readFile(scriptPath);
 				} catch {
@@ -297,7 +298,8 @@ node /opt/npm/bin/npx-cli.js "$@"
 			return { stdout: "", stderr: "", code: 0 };
 		}
 
-		const result = await this.nodeProcess.exec(code);
+		// Pass the script path so __dirname/__filename are set correctly
+		const result = await this.nodeProcess.exec(code, scriptPath);
 		return {
 			stdout: result.stdout,
 			stderr: result.stderr,

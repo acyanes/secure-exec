@@ -183,6 +183,7 @@ class ReadStream {
   private _loadContent(): Buffer {
     if (this._content === null) {
       const pathStr = typeof this.path === 'string' ? this.path : this.path.toString();
+      // readFileSync already normalizes the path
       this._content = fs.readFileSync(pathStr) as Buffer;
       this.pending = false;
     }
@@ -761,6 +762,27 @@ function toPathString(path: PathLike): string {
   return String(path);
 }
 
+// Data mount path constant - must match wasix/index.ts DATA_MOUNT_PATH
+const DATA_MOUNT_PATH = "/data";
+
+/**
+ * Normalize a filesystem path for Directory access.
+ *
+ * In WASM, the Directory is mounted at /data, so files appear at /data/foo.txt.
+ * But the Directory API stores them at /foo.txt (without the /data prefix).
+ *
+ * This function strips the /data prefix when accessing the Directory.
+ */
+function normalizePathForDirectory(path: string): string {
+  if (path.startsWith(DATA_MOUNT_PATH + "/")) {
+    return path.slice(DATA_MOUNT_PATH.length);
+  }
+  if (path === DATA_MOUNT_PATH) {
+    return "/";
+  }
+  return path;
+}
+
 // The fs module implementation
 const fs = {
   // Constants
@@ -822,8 +844,9 @@ const fs = {
   // Sync methods
 
   readFileSync(path: PathOrFileDescriptor, options?: ReadFileOptions): string | Buffer {
-    const pathStr = typeof path === "number" ? fdTable.get(path)?.path : toPathString(path);
-    if (!pathStr) throw createFsError("EBADF", "EBADF: bad file descriptor", "read");
+    const rawPath = typeof path === "number" ? fdTable.get(path)?.path : toPathString(path);
+    if (!rawPath) throw createFsError("EBADF", "EBADF: bad file descriptor", "read");
+    const pathStr = normalizePathForDirectory(rawPath);
     const encoding =
       typeof options === "string" ? options : (options as { encoding?: BufferEncoding | null })?.encoding;
 
@@ -843,9 +866,9 @@ const fs = {
       if (errMsg.includes("entry not found") || errMsg.includes("not found")) {
         throw createFsError(
           "ENOENT",
-          `ENOENT: no such file or directory, read '${pathStr}'`,
+          `ENOENT: no such file or directory, read '${rawPath}'`,
           "read",
-          pathStr
+          rawPath
         );
       }
       throw err;
@@ -857,9 +880,9 @@ const fs = {
     data: string | NodeJS.ArrayBufferView,
     _options?: WriteFileOptions
   ): void {
-    const pathStr = typeof file === "number" ? fdTable.get(file)?.path : toPathString(file);
-    if (!pathStr) throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
-    // fs.writeFileSync
+    const rawPath = typeof file === "number" ? fdTable.get(file)?.path : toPathString(file);
+    if (!rawPath) throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
+    const pathStr = normalizePathForDirectory(rawPath);
 
     if (typeof data === "string") {
       // Text mode - use text write
@@ -888,7 +911,8 @@ const fs = {
   },
 
   readdirSync(path: PathLike, options?: nodeFs.ObjectEncodingOptions & { withFileTypes?: boolean; recursive?: boolean }): string[] | Dirent[] {
-    const pathStr = toPathString(path);
+    const rawPath = toPathString(path);
+    const pathStr = normalizePathForDirectory(rawPath);
     let entriesJson: string;
     try {
       entriesJson = _fs.readDir.applySyncPromise(undefined, [pathStr]);
@@ -898,9 +922,9 @@ const fs = {
       if (errMsg.includes("entry not found") || errMsg.includes("not found")) {
         throw createFsError(
           "ENOENT",
-          `ENOENT: no such file or directory, scandir '${pathStr}'`,
+          `ENOENT: no such file or directory, scandir '${rawPath}'`,
           "scandir",
-          pathStr
+          rawPath
         );
       }
       throw err;
@@ -910,19 +934,22 @@ const fs = {
       isDirectory: boolean;
     }>;
     if (options?.withFileTypes) {
-      return entries.map((e) => new Dirent(e.name, e.isDirectory, pathStr));
+      return entries.map((e) => new Dirent(e.name, e.isDirectory, rawPath));
     }
     return entries.map((e) => e.name);
   },
 
   mkdirSync(path: PathLike, options?: MakeDirectoryOptions | Mode): string | undefined {
+    const rawPath = toPathString(path);
+    const pathStr = normalizePathForDirectory(rawPath);
     const recursive = typeof options === "object" ? options?.recursive ?? false : false;
-    _fs.mkdir.applySync(undefined, [toPathString(path), recursive]);
-    return recursive ? toPathString(path) : undefined;
+    _fs.mkdir.applySync(undefined, [pathStr, recursive]);
+    return recursive ? rawPath : undefined;
   },
 
   rmdirSync(path: PathLike, _options?: RmDirOptions): void {
-    _fs.rmdir.applySyncPromise(undefined, [toPathString(path)]);
+    const pathStr = normalizePathForDirectory(toPathString(path));
+    _fs.rmdir.applySyncPromise(undefined, [pathStr]);
   },
 
   rmSync(path: PathLike, options?: { force?: boolean; recursive?: boolean }): void {
@@ -959,12 +986,13 @@ const fs = {
   },
 
   existsSync(path: PathLike): boolean {
-    const pathStr = toPathString(path);
+    const pathStr = normalizePathForDirectory(toPathString(path));
     return _fs.exists.applySyncPromise(undefined, [pathStr]);
   },
 
   statSync(path: PathLike, _options?: nodeFs.StatSyncOptions): Stats {
-    const pathStr = toPathString(path);
+    const rawPath = toPathString(path);
+    const pathStr = normalizePathForDirectory(rawPath);
     let statJson: string;
     try {
       statJson = _fs.stat.applySyncPromise(undefined, [pathStr]);
@@ -979,9 +1007,9 @@ const fs = {
       ) {
         throw createFsError(
           "ENOENT",
-          `ENOENT: no such file or directory, stat '${pathStr}'`,
+          `ENOENT: no such file or directory, stat '${rawPath}'`,
           "stat",
-          pathStr
+          rawPath
         );
       }
       throw err;
@@ -1003,14 +1031,18 @@ const fs = {
   },
 
   unlinkSync(path: PathLike): void {
-    _fs.unlink.applySyncPromise(undefined, [toPathString(path)]);
+    const pathStr = normalizePathForDirectory(toPathString(path));
+    _fs.unlink.applySyncPromise(undefined, [pathStr]);
   },
 
   renameSync(oldPath: PathLike, newPath: PathLike): void {
-    _fs.rename.applySyncPromise(undefined, [toPathString(oldPath), toPathString(newPath)]);
+    const oldPathStr = normalizePathForDirectory(toPathString(oldPath));
+    const newPathStr = normalizePathForDirectory(toPathString(newPath));
+    _fs.rename.applySyncPromise(undefined, [oldPathStr, newPathStr]);
   },
 
   copyFileSync(src: PathLike, dest: PathLike, _mode?: number): void {
+    // readFileSync and writeFileSync already normalize paths
     const content = fs.readFileSync(src);
     fs.writeFileSync(dest, content as Buffer);
   },
@@ -1018,12 +1050,12 @@ const fs = {
   // File descriptor methods
 
   openSync(path: PathLike, flags: OpenMode, _mode?: Mode | null): number {
-    const pathStr = toPathString(path);
+    const rawPath = toPathString(path);
+    const pathStr = normalizePathForDirectory(rawPath);
     const numFlags = parseFlags(flags);
     const fd = nextFd++;
-    // fs.openSync
 
-    // Check if file exists
+    // Check if file exists (existsSync already normalizes)
     const exists = fs.existsSync(path);
 
     // Handle O_CREAT - create file if it doesn't exist
@@ -1032,9 +1064,9 @@ const fs = {
     } else if (!exists && !(numFlags & 64)) {
       throw createFsError(
         "ENOENT",
-        `ENOENT: no such file or directory, open '${pathStr}'`,
+        `ENOENT: no such file or directory, open '${rawPath}'`,
         "open",
-        pathStr
+        rawPath
       );
     }
 
@@ -1043,6 +1075,7 @@ const fs = {
       fs.writeFileSync(path, "");
     }
 
+    // Store normalized path in fd table for subsequent operations
     fdTable.set(fd, { path: pathStr, flags: numFlags, position: 0 });
     return fd;
   },
@@ -1694,6 +1727,7 @@ const fs = {
   // Compatibility methods
 
   accessSync(path: string): void {
+    // existsSync already normalizes the path
     if (!fs.existsSync(path)) {
       throw createFsError(
         "ENOENT",
@@ -1727,7 +1761,7 @@ const fs = {
 
   realpathSync: Object.assign(
     function realpathSync(path: PathLike): string {
-      // In our virtual fs, just normalize the path
+      // In our virtual fs, just normalize the path (keep /data prefix for consistency)
       return toPathString(path)
         .replace(/\/\/+/g, "/")
         .replace(/\/$/, "") || "/";
