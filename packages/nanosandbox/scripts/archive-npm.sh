@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 NPM_VERSION="${NPM_VERSION:-11.7.0}"
-ASSETS_DIR="assets/npm"
+ASSETS_DIR="dist/npm"
 
 # Cache downloaded tarballs
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/nanosandbox"

@@ -139,7 +139,7 @@ export class VirtualMachine {
 		if (!this.directory) return;
 
 		const currentDir = path.dirname(fileURLToPath(import.meta.url));
-		const npmAssetsPath = path.resolve(currentDir, "../../assets/npm");
+		const npmAssetsPath = path.resolve(currentDir, "../../dist/npm");
 
 		// Check if npm assets exist
 		try {

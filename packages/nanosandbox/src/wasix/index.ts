@@ -81,7 +81,7 @@ export class WasixInstance {
 		// Load runtime package (includes bash + node-shim for IPC)
 		if (!wasixRuntime) {
 			const currentDir = path.dirname(fileURLToPath(import.meta.url));
-			const webcPath = path.resolve(currentDir, "../../assets/runtime.webc");
+			const webcPath = path.resolve(currentDir, "../../dist/runtime.webc");
 			const webcBytes = await fs.readFile(webcPath);
 			wasixRuntime = await Wasmer.fromFile(webcBytes);
 		}

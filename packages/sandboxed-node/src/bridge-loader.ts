@@ -13,7 +13,7 @@ let bridgeCodeCache: string | null = null;
  */
 export function getRawBridgeCode(): string {
 	if (!bridgeCodeCache) {
-		const bridgePath = path.join(__dirname, "..", "assets", "bridge.js");
+		const bridgePath = path.join(__dirname, "..", "dist", "bridge.js");
 		bridgeCodeCache = fs.readFileSync(bridgePath, "utf8");
 	}
 	return bridgeCodeCache;

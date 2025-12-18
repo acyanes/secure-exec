@@ -92,7 +92,7 @@ describe("WasixInstance", () => {
 			const __dirname = nodePath.dirname(
 				nodeUrl.fileURLToPath(import.meta.url),
 			);
-			const runtimePath = nodePath.join(__dirname, "../../assets/runtime.webc");
+			const runtimePath = nodePath.join(__dirname, "../dist/runtime.webc");
 
 			// Read the webc bytes like the production code does
 			const webcBytes = await nodeFs.readFile(runtimePath);
@@ -145,7 +145,7 @@ describe("WasixInstance", () => {
 			const __dirname = nodePath.dirname(
 				nodeUrl.fileURLToPath(import.meta.url),
 			);
-			const runtimePath = nodePath.join(__dirname, "../../assets/runtime.webc");
+			const runtimePath = nodePath.join(__dirname, "../dist/runtime.webc");
 
 			const webcBytes = await nodeFs.readFile(runtimePath);
 			const pkg = await Wasmer.fromFile(webcBytes);
