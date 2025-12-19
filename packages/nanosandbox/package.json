@@ -6,8 +6,8 @@
   "types": "./dist/vm/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/vm/index.js",
-      "types": "./dist/vm/index.d.ts"
+      "import": "./dist/runtime/index.js",
+      "types": "./dist/runtime/index.d.ts"
     }
   },
   "scripts": {
