@@ -66,6 +66,28 @@ describe("VirtualMachine", () => {
 			});
 			expect(vm.code).not.toBe(0);
 		});
+
+		it("should ping-pong stdin/stdout 3 times", async () => {
+			// Node script that reads lines and responds with pong
+			const script = `
+				const readline = require('readline');
+				const rl = readline.createInterface({ input: process.stdin });
+				let count = 0;
+				rl.on('line', (line) => {
+					count++;
+					console.log('pong' + count);
+					if (count >= 3) rl.close();
+				});
+			`;
+			const vm = await runtime.run("node", {
+				args: ["-e", script],
+				stdin: "ping1\nping2\nping3\n",
+			});
+			expect(vm.stdout).toContain("pong1");
+			expect(vm.stdout).toContain("pong2");
+			expect(vm.stdout).toContain("pong3");
+			expect(vm.code).toBe(0);
+		});
 	});
 
 	describe("Isolation", () => {

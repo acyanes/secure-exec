@@ -9,6 +9,8 @@ export interface VirtualMachineOptions {
 	env?: Record<string, string>;
 	cwd?: string;
 	memoryLimit?: number;
+	/** Input to pass to the command's stdin */
+	stdin?: string;
 }
 
 interface HostExecContext {
@@ -22,6 +24,8 @@ interface HostExecContext {
 	// Streaming callbacks for output
 	onStdout?: (data: Uint8Array) => void;
 	onStderr?: (data: Uint8Array) => void;
+	// Stdin write callbacks - set by handler, called by scheduler
+	setStdinWriter?: (writer: (data: Uint8Array) => void, closer: () => void) => void;
 }
 
 const DATA_MOUNT_PATH = "/data";
@@ -47,6 +51,21 @@ async function hostExecHandler(ctx: HostExecContext): Promise<number> {
 			cwd: ctx.cwd !== "/" ? ctx.cwd : undefined,
 			stdio: ["pipe", "pipe", "pipe"],
 		});
+
+		// Register stdin writer if setStdinWriter is available
+		if (ctx.setStdinWriter && child.stdin) {
+			const childStdin = child.stdin;
+			ctx.setStdinWriter(
+				// Writer function
+				(data: Uint8Array) => {
+					childStdin.write(Buffer.from(data));
+				},
+				// Closer function
+				() => {
+					childStdin.end();
+				}
+			);
+		}
 
 		// Stream stdout via callback
 		child.stdout?.on("data", (data: Buffer) => {
@@ -115,7 +134,7 @@ export class VirtualMachine {
 			throw new Error(`Command not found: ${this.command}`);
 		}
 
-		const { args = [], env, cwd } = this.options;
+		const { args = [], env, cwd, stdin } = this.options;
 
 		const directory = new Directory();
 
@@ -123,6 +142,7 @@ export class VirtualMachine {
 			args,
 			env,
 			cwd,
+			stdin,
 			mount: {
 				[DATA_MOUNT_PATH]: directory,
 			},

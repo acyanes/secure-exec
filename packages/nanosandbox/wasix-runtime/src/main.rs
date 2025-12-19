@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::env;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::process::exit;
 
 // Syscall imports
@@ -82,8 +82,25 @@ fn main() {
 
     eprintln!("[wasix-shim] Session started: {}", session);
 
-    // Note: stdin forwarding is skipped for now since WASM doesn't support std::thread::spawn
-    // TODO: Implement non-blocking stdin or use async I/O when available
+    // Forward stdin to host process (batch mode - read all, then send)
+    // This works for non-interactive use cases where stdin is provided upfront
+    {
+        let mut stdin_buf = Vec::new();
+        if let Ok(n) = io::stdin().read_to_end(&mut stdin_buf) {
+            if n > 0 {
+                eprintln!("[wasix-shim] Sending {} bytes of stdin to host", n);
+                let errno = unsafe {
+                    host_exec_write(session, stdin_buf.as_ptr(), stdin_buf.len())
+                };
+                if errno != 0 {
+                    eprintln!("[wasix-shim] host_exec_write failed with errno {}", errno);
+                }
+            }
+        }
+        // Close stdin to signal EOF to the host process
+        unsafe { host_exec_close_stdin(session) };
+        eprintln!("[wasix-shim] Closed stdin");
+    }
 
     // Main loop: read output from host and forward to our stdio
     let mut stdout = io::stdout();
