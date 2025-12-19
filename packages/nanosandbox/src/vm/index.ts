@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as child_process from "node:child_process";
 import { Directory, Wasmer, Runtime } from "@wasmer/sdk/node";
 import { NodeProcess } from "sandboxed-node";
 import { createCommandExecutor } from "../command-executor.js";
@@ -277,13 +278,67 @@ async function hostExecHandler(ctx: HostExecContext): Promise<number> {
 		return handleNodeCommand(ctx);
 	}
 
-	// For non-node commands, return error (not supported in sandbox)
-	console.error(`[host_exec] unsupported command: ${ctx.command}`);
-	const errorMsg = `Error: Command '${ctx.command}' is not supported in sandbox. Only 'node' is available.\n`;
-	if (ctx.onStderr) {
-		ctx.onStderr(new TextEncoder().encode(errorMsg));
-	}
-	return 1;
+	// For non-node commands, spawn them as real processes
+	return handleShellCommand(ctx);
+}
+
+/**
+ * Handle shell commands by spawning them as real processes.
+ *
+ * This is used for commands like echo, ls, cat, etc. that need to run
+ * on the host system.
+ */
+async function handleShellCommand(ctx: HostExecContext): Promise<number> {
+	return new Promise((resolve) => {
+		const child = child_process.spawn(ctx.command, ctx.args, {
+			cwd: ctx.cwd || undefined,
+			env: ctx.env || process.env,
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+
+		// Handle stdout
+		child.stdout?.on("data", (data: Buffer) => {
+			if (ctx.onStdout) {
+				ctx.onStdout(new Uint8Array(data));
+			}
+		});
+
+		// Handle stderr
+		child.stderr?.on("data", (data: Buffer) => {
+			if (ctx.onStderr) {
+				ctx.onStderr(new Uint8Array(data));
+			}
+		});
+
+		// Handle stdin
+		if (ctx.setStdinWriter) {
+			ctx.setStdinWriter(
+				(data: Uint8Array) => {
+					child.stdin?.write(data);
+				},
+				() => {
+					child.stdin?.end();
+				}
+			);
+		} else {
+			// No stdin writer - close stdin immediately
+			child.stdin?.end();
+		}
+
+		// Handle errors (like command not found)
+		child.on("error", (err: Error) => {
+			const errorMsg = `spawn ${ctx.command} ENOENT: ${err.message}\n`;
+			if (ctx.onStderr) {
+				ctx.onStderr(new TextEncoder().encode(errorMsg));
+			}
+			resolve(127); // Command not found exit code
+		});
+
+		// Handle exit
+		child.on("close", (code: number | null) => {
+			resolve(code ?? 1);
+		});
+	});
 }
 
 /**

@@ -437,61 +437,21 @@ fn handle_spawn_request(
         spawn_req.child_id, spawn_req.command, spawn_req.args
     );
 
-    // For "node" commands, use host_exec instead of WASIX Command
-    // This allows nested node commands to run through the same sandboxed mechanism
-    if spawn_req.command == "node" {
-        handle_spawn_node(parent_session, spawn_req, host_exec_children);
-        return;
-    }
-
-    // Build the command
-    let mut cmd = Command::new(&spawn_req.command);
-    cmd.args(&spawn_req.args);
-    cmd.envs(&spawn_req.env);
-
-    // Set up pipes for stdout/stderr/stdin
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    cmd.stdin(Stdio::piped());
-
-    // Set working directory if specified
-    if !spawn_req.cwd.is_empty() {
-        cmd.current_dir(&spawn_req.cwd);
-    }
-
-    // Spawn the child
-    match cmd.spawn() {
-        Ok(child) => {
-            eprintln!("[wasix-shim] Child {} spawned successfully", spawn_req.child_id);
-            children.insert(spawn_req.child_id, ChildProcess { child });
-        }
-        Err(e) => {
-            eprintln!("[wasix-shim] Failed to spawn child {}: {}", spawn_req.child_id, e);
-            // Send exit with error code
-            let exit_code: i32 = -1;
-            let exit_data = exit_code.to_le_bytes();
-            unsafe {
-                host_exec_child_output(
-                    parent_session,
-                    spawn_req.child_id,
-                    MSG_TYPE_CHILD_EXIT,
-                    exit_data.as_ptr(),
-                    exit_data.len(),
-                );
-            }
-        }
-    }
+    // Route ALL commands through host_exec so they run on the host
+    // This is necessary because WASIX doesn't have binaries for common commands
+    // like echo, ls, cat, etc. The host (Node.js) can execute these.
+    handle_spawn_via_host_exec(parent_session, spawn_req, host_exec_children);
 }
 
-/// Handle spawning a "node" command via host_exec
-fn handle_spawn_node(
+/// Handle spawning a command via host_exec (runs on the host, not in WASIX)
+fn handle_spawn_via_host_exec(
     parent_session: u64,
     spawn_req: SpawnRequest,
     host_exec_children: &mut HashMap<u64, HostExecChild>,
 ) {
-    // Create a host_exec request for the node command
+    // Create a host_exec request for the command
     let request = Request {
-        command: "node".to_string(),
+        command: spawn_req.command.clone(),
         args: spawn_req.args.clone(),
         env: spawn_req.env.clone(),
         cwd: if spawn_req.cwd.is_empty() {
@@ -504,7 +464,7 @@ fn handle_spawn_node(
     let request_json = match serde_json::to_vec(&request) {
         Ok(j) => j,
         Err(e) => {
-            eprintln!("[wasix-shim] Failed to serialize node request: {}", e);
+            eprintln!("[wasix-shim] Failed to serialize child request: {}", e);
             let exit_code: i32 = -1;
             let exit_data = exit_code.to_le_bytes();
             unsafe {
@@ -531,7 +491,7 @@ fn handle_spawn_node(
     };
 
     if errno != 0 {
-        eprintln!("[wasix-shim] Failed to start node child session: errno {}", errno);
+        eprintln!("[wasix-shim] Failed to start child session: errno {}", errno);
         let exit_code: i32 = -1;
         let exit_data = exit_code.to_le_bytes();
         unsafe {
@@ -546,7 +506,7 @@ fn handle_spawn_node(
         return;
     }
 
-    eprintln!("[wasix-shim] Node child {} started with session {}", spawn_req.child_id, child_session);
+    eprintln!("[wasix-shim] Child {} started with session {}", spawn_req.child_id, child_session);
 
     // Track the host_exec child
     host_exec_children.insert(spawn_req.child_id, HostExecChild {
