@@ -8,8 +8,12 @@
 ## short term
 
 - remove use of runCommand, make it all run with ipc
+- see what else needs to be simulated (signals?)
+- potentially move fs to use this system too?
+- implement child process v2 with the host process context
 - remove js cruft from npm tests (raw npm should work fine)
 - get npm working in terminal
+- figure out how to be able to spawn commands & mutate fs mid-job
 
 ## cleanup
 
@@ -42,6 +46,7 @@
 - batch commands hang - `bash -c "echo hello"` never returns from instance.wait() in WASI/WASIX bash. interactive mode works fine
 - WASM memory limits - memoryLimit is plumbed through but not yet enforced on WASM side
 - wasmer-js Directory.writeFile missing truncate(true) - overwriting a file with shorter content leaves old bytes at the end. Bug is in wasmer-js src/fs/directory.rs: open_options uses .write(true).create(true) but not .truncate(true). Workaround: delete file before writing. See virtual-filesystem.ts
+- host_exec poll CPU overhead - current implementation uses 10ms timeout polling (~100 wakes/sec when idle). Implement `host_exec_get_notify_fd` syscall to enable zero-CPU idle waiting via poll_oneoff. See [docs/research/host-exec-notify-fd.md](docs/research/host-exec-notify-fd.md)
 
 ## other
 - get claude code cli working in this emulator
@@ -59,6 +64,7 @@
 - why does chmod not work
 - integrate pino
 - snapshots/live migration
+- custom images
 
 ## better isolation
 
