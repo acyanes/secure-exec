@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from "vitest";
-import { Runtime, Process } from "../src/runtime/index.js";
+import { Runtime } from "../src/runtime/index.js";
 
 /**
  * Tests for sandboxed Node.js execution via the V8 Accelerator.
@@ -70,36 +70,4 @@ describe("Node Process", () => {
 			expect(result.stdout).toContain("OUT:ping3");
 		}, 30000);
 	});
-
-	// More comprehensive child process tests are in node-child-process.test.ts
-	// These basic tests verify the integration works
-	describe("Child process basics", () => {
-		// Child process spawning from Node spawns actual WASM instances
-		// When spawning "node", it goes through host_exec and runs as sandboxed NodeProcess
-		it("should spawn node command from node via spawnSync", async () => {
-			const script = `
-				const { spawnSync } = require('child_process');
-				const result = spawnSync('node', ['-e', 'console.log("hello from child")']);
-				console.log('stdout:', result.stdout.toString().trim());
-				console.log('code:', result.status);
-			`;
-			const vm = await runtime.run("node", {
-				args: ["-e", script],
-			});
-			expect(vm.stdout).toContain("stdout: hello from child");
-			expect(vm.stdout).toContain("code: 0");
-		}, 30000);
-	});
 });
-
-/** Poll stdout until we get the expected exact output */
-async function pollForOutput(proc: Process, expected: string, timeoutMs = 5000): Promise<void> {
-	const startTime = Date.now();
-	while (Date.now() - startTime < timeoutMs) {
-		const output = await proc.readStdout();
-		if (output === expected) return;
-		if (output !== "") throw new Error(`Expected "${expected}", got "${output}"`);
-		await new Promise(r => setTimeout(r, 50));
-	}
-	throw new Error(`Timeout waiting for "${expected}"`);
-}

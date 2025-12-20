@@ -9,7 +9,7 @@ description = "WASIX runtime with Node.js shim for IPC-based Node execution"
 
 [[module]]
 name = "wasix-runtime"
-source = "target/wasm32-wasip1/release/wasix-runtime.wasm"
+source = "target/wasm32-wasmer-wasi/release/wasix-runtime.wasm"
 abi = "wasi"
 
 [[command]]
