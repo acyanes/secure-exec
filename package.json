@@ -1,5 +1,5 @@
 {
-	"name": "nanosandbox",
+	"name": "libsandbox",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -10,15 +10,8 @@
 		"test": "turbo run test",
 		"test:watch": "turbo run test:watch",
 		"dev": "turbo run dev",
-		"exec": "pnpm build -F @nanosandbox/terminal && node packages/terminal/dist/cli.js",
-		"shell": "pnpm build -F @nanosandbox/terminal && node packages/terminal/dist/cli.js -i bash",
 		"lint": "biome check",
 		"lint:fix": "biome check --write"
-	},
-	"pnpm": {
-		"overrides": {
-			"@wasmer/sdk": "file:../misc/wasmer-js"
-		}
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.9",

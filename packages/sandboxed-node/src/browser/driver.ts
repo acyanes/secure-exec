@@ -1,0 +1,264 @@
+import {
+	wrapCommandExecutor,
+	wrapFileSystem,
+	wrapNetworkAdapter,
+} from "../shared/permissions.js";
+import { createInMemoryFileSystem } from "../shared/in-memory-fs.js";
+import type {
+	CommandExecutor,
+	NetworkAdapter,
+	Permissions,
+	SandboxDriver,
+	VirtualFileSystem,
+} from "../types.js";
+import { createEnosysError } from "../shared/errors.js";
+
+function normalizePath(path: string): string {
+	if (!path) return "/";
+	let normalized = path.startsWith("/") ? path : `/${path}`;
+	normalized = normalized.replace(/\/+/g, "/");
+	if (normalized.length > 1 && normalized.endsWith("/")) {
+		normalized = normalized.slice(0, -1);
+	}
+	return normalized;
+}
+
+function splitPath(path: string): string[] {
+	const normalized = normalizePath(path);
+	return normalized === "/" ? [] : normalized.slice(1).split("/");
+}
+
+function dirname(path: string): string {
+	const parts = splitPath(path);
+	if (parts.length <= 1) return "/";
+	return `/${parts.slice(0, -1).join("/")}`;
+}
+
+async function getRootHandle(): Promise<FileSystemDirectoryHandle> {
+	if (!("storage" in navigator) || !("getDirectory" in navigator.storage)) {
+		throw createEnosysError("opfs");
+	}
+	return navigator.storage.getDirectory();
+}
+
+export class OpfsFileSystem implements VirtualFileSystem {
+	private rootPromise: Promise<FileSystemDirectoryHandle>;
+
+	constructor() {
+		this.rootPromise = getRootHandle();
+	}
+
+	private async getDirHandle(path: string, create = false): Promise<FileSystemDirectoryHandle> {
+		const root = await this.rootPromise;
+		const parts = splitPath(path);
+		let current = root;
+		for (const part of parts) {
+			current = await current.getDirectoryHandle(part, { create });
+		}
+		return current;
+	}
+
+	private async getFileHandle(
+		path: string,
+		create = false,
+	): Promise<FileSystemFileHandle> {
+		const normalized = normalizePath(path);
+		const parent = dirname(normalized);
+		const name = normalized.split("/").pop() || "";
+		const dir = await this.getDirHandle(parent, create);
+		return dir.getFileHandle(name, { create });
+	}
+
+	async readFile(path: string): Promise<Uint8Array> {
+		const handle = await this.getFileHandle(path);
+		const file = await handle.getFile();
+		const buffer = await file.arrayBuffer();
+		return new Uint8Array(buffer);
+	}
+
+	async readTextFile(path: string): Promise<string> {
+		const handle = await this.getFileHandle(path);
+		const file = await handle.getFile();
+		return file.text();
+	}
+
+	async readDir(path: string): Promise<string[]> {
+		const dir = await this.getDirHandle(path);
+		const entries: string[] = [];
+		for await (const [name] of dir.entries()) {
+			entries.push(name);
+		}
+		return entries;
+	}
+
+	async writeFile(path: string, content: string | Uint8Array): Promise<void> {
+		const normalized = normalizePath(path);
+		await this.mkdir(dirname(normalized));
+		const handle = await this.getFileHandle(normalized, true);
+		const writable = await handle.createWritable();
+		if (typeof content === "string") {
+			await writable.write(content);
+		} else {
+			await writable.write(content);
+		}
+		await writable.close();
+	}
+
+	async createDir(path: string): Promise<void> {
+		const normalized = normalizePath(path);
+		const parent = dirname(normalized);
+		await this.getDirHandle(parent, false);
+		await this.getDirHandle(normalized, true);
+	}
+
+	async mkdir(path: string): Promise<void> {
+		const parts = splitPath(path);
+		let current = "";
+		for (const part of parts) {
+			current += `/${part}`;
+			await this.getDirHandle(current, true);
+		}
+	}
+
+	async exists(path: string): Promise<boolean> {
+		try {
+			await this.getFileHandle(path);
+			return true;
+		} catch {
+			try {
+				await this.getDirHandle(path);
+				return true;
+			} catch {
+				return false;
+			}
+		}
+	}
+
+	async removeFile(path: string): Promise<void> {
+		const normalized = normalizePath(path);
+		const parent = dirname(normalized);
+		const name = normalized.split("/").pop() || "";
+		const dir = await this.getDirHandle(parent);
+		await dir.removeEntry(name);
+	}
+
+	async removeDir(path: string): Promise<void> {
+		const normalized = normalizePath(path);
+		if (normalized === "/") {
+			throw new Error("EPERM: operation not permitted, rmdir '/'");
+		}
+		const parent = dirname(normalized);
+		const name = normalized.split("/").pop() || "";
+		const dir = await this.getDirHandle(parent);
+		await dir.removeEntry(name);
+	}
+}
+
+export interface BrowserDriverOptions {
+	filesystem?: VirtualFileSystem;
+	networkAdapter?: NetworkAdapter;
+	commandExecutor?: CommandExecutor;
+	permissions?: Permissions;
+	useDefaultNetwork?: boolean;
+}
+
+export async function createOpfsFileSystem(): Promise<VirtualFileSystem> {
+	if (!("storage" in navigator) || typeof navigator.storage.getDirectory !== "function") {
+		return createInMemoryFileSystem();
+	}
+	return new OpfsFileSystem();
+}
+
+export function createBrowserNetworkAdapter(): NetworkAdapter {
+	return {
+		async fetch(url, options) {
+			const response = await fetch(url, {
+				method: options?.method || "GET",
+				headers: options?.headers,
+				body: options?.body,
+			});
+			const headers: Record<string, string> = {};
+			response.headers.forEach((v, k) => {
+				headers[k] = v;
+			});
+
+			const contentType = response.headers.get("content-type") || "";
+			const isBinary =
+				contentType.includes("octet-stream") ||
+				contentType.includes("gzip") ||
+				url.endsWith(".tgz");
+
+			let body: string;
+			if (isBinary) {
+				const buffer = await response.arrayBuffer();
+				body = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+				headers["x-body-encoding"] = "base64";
+			} else {
+				body = await response.text();
+			}
+
+			return {
+				ok: response.ok,
+				status: response.status,
+				statusText: response.statusText,
+				headers,
+				body,
+				url: response.url,
+				redirected: response.redirected,
+			};
+		},
+
+		async dnsLookup(_hostname) {
+			return { error: "DNS not supported in browser", code: "ENOSYS" };
+		},
+
+		async httpRequest(url, options) {
+			const response = await fetch(url, {
+				method: options?.method || "GET",
+				headers: options?.headers,
+				body: options?.body,
+			});
+			const headers: Record<string, string> = {};
+			response.headers.forEach((v, k) => {
+				headers[k] = v;
+			});
+			const body = await response.text();
+			return {
+				status: response.status,
+				statusText: response.statusText,
+				headers,
+				body,
+				url: response.url,
+			};
+		},
+	};
+}
+
+export async function createBrowserDriver(
+	options: BrowserDriverOptions = {},
+): Promise<SandboxDriver> {
+	const permissions = options.permissions;
+	const filesystem =
+		options.filesystem ?? (await createOpfsFileSystem());
+	const networkAdapter = options.networkAdapter
+		? wrapNetworkAdapter(options.networkAdapter, permissions)
+		: options.useDefaultNetwork
+			? wrapNetworkAdapter(createBrowserNetworkAdapter(), permissions)
+			: undefined;
+	const commandExecutor = options.commandExecutor
+		? wrapCommandExecutor(options.commandExecutor, permissions)
+		: undefined;
+
+	return {
+		filesystem: wrapFileSystem(filesystem, permissions),
+		network: networkAdapter,
+		commandExecutor,
+		permissions,
+	};
+}
+
+export {
+	createCommandExecutorStub,
+	createFsStub,
+	createNetworkStub,
+};

@@ -1,11 +1,46 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as esbuild from "esbuild";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Cache the bridge code
 let bridgeCodeCache: string | null = null;
+
+function findBridgeSourcePath(): string | null {
+	const candidates = [
+		path.join(__dirname, "bridge", "index.ts"),
+		path.join(__dirname, "..", "src", "bridge", "index.ts"),
+	];
+	for (const candidate of candidates) {
+		if (fs.existsSync(candidate)) return candidate;
+	}
+	return null;
+}
+
+function ensureBridgeBundle(bridgePath: string): void {
+	if (fs.existsSync(bridgePath)) return;
+
+	const sourcePath = findBridgeSourcePath();
+	if (!sourcePath) {
+		throw new Error(
+			"bridge.js not found and source is unavailable. Run `pnpm -C packages/sandboxed-node build:bridge`.",
+		);
+	}
+
+	fs.mkdirSync(path.dirname(bridgePath), { recursive: true });
+	const result = esbuild.buildSync({
+		entryPoints: [sourcePath],
+		bundle: true,
+		format: "iife",
+		globalName: "bridge",
+		outfile: bridgePath,
+	});
+	if (result.errors.length > 0) {
+		throw new Error(`Failed to build bridge.js: ${result.errors[0].text}`);
+	}
+}
 
 /**
  * Get the raw compiled bridge.js code.
@@ -14,6 +49,7 @@ let bridgeCodeCache: string | null = null;
 export function getRawBridgeCode(): string {
 	if (!bridgeCodeCache) {
 		const bridgePath = path.join(__dirname, "..", "dist", "bridge.js");
+		ensureBridgeBundle(bridgePath);
 		bridgeCodeCache = fs.readFileSync(bridgePath, "utf8");
 	}
 	return bridgeCodeCache;
