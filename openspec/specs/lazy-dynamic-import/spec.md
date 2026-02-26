@@ -1,7 +1,7 @@
 # lazy-dynamic-import Specification
 
 ## Purpose
-TBD - created by archiving change fix-dynamic-import-eager-eval. Update Purpose after archive.
+Define lazy `import()` evaluation semantics so dynamic imports execute side effects only when reached at runtime.
 ## Requirements
 ### Requirement: Lazy Evaluation of Dynamic Imports
 Dynamically imported modules (`import()`) SHALL be evaluated only when the import expression is reached during user code execution, not during the precompilation phase.
@@ -35,4 +35,3 @@ The `__dynamicImport` bridge function SHALL return a Promise that resolves to th
 #### Scenario: Dynamic import of non-existent module rejects
 - **WHEN** user code calls `await import("./nonexistent")`
 - **THEN** the returned Promise MUST reject with an error indicating the module cannot be resolved
-
