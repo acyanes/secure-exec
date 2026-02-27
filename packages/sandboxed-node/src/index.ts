@@ -227,6 +227,50 @@ export class NodeProcess {
 	}
 
 	/**
+	 * Unsafe isolate escape hatch for direct low-level isolated-vm usage.
+	 */
+	get __unsafeIsoalte(): ivm.Isolate {
+		if (this.disposed) {
+			throw new Error("NodeProcess has been disposed");
+		}
+		return this.isolate;
+	}
+
+	/**
+	 * Unsafe context bootstrap for direct host-to-isolate function references.
+	 * Caller owns lifecycle and MUST call context.release() when done.
+	 */
+	async __unsafeCreateContext(options: {
+		env?: Record<string, string>;
+		cwd?: string;
+		filePath?: string;
+	} = {}): Promise<ivm.Context> {
+		if (this.disposed) {
+			throw new Error("NodeProcess has been disposed");
+		}
+
+		const context = await this.isolate.createContext();
+		const jail = context.global;
+		await jail.set("global", jail.derefInto());
+
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+		const timingMitigation = this.getTimingMitigation(undefined);
+		const frozenTimeMs = Date.now();
+
+		await this.setupConsole(context, jail, stdout, stderr);
+		await this.setupRequire(context, jail, timingMitigation, frozenTimeMs);
+		await this.initCommonJsModuleGlobals(context);
+		await this.applyExecutionOverrides(context, options.env, options.cwd, undefined);
+		if (options.filePath) {
+			await this.setCommonJsFileGlobals(context, options.filePath);
+		}
+		await this.applyCustomGlobalExposurePolicy(context);
+
+		return context;
+	}
+
+	/**
 	 * Set the filesystem for file access
 	 */
 	setFilesystem(filesystem: VirtualFileSystem): void {
