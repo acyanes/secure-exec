@@ -2,7 +2,6 @@
 
 ## Purpose
 Define Node stdlib compatibility behavior including module resolution boundaries, support tiers, and deterministic fallback errors.
-
 ## Requirements
 ### Requirement: Third-Party Packages Must Not Be Shimmed in Require Resolution
 The require system MUST NOT contain inline stubs or shims for third-party npm packages. Packages that are not Node.js built-in modules SHALL resolve exclusively through sandboxed `node_modules` filesystem resolution.
@@ -142,3 +141,26 @@ The compatibility matrix MUST NOT contain entries for third-party modules that a
 #### Scenario: Third-party bridge is removed from code
 - **WHEN** a third-party module bridge has been deleted from the codebase
 - **THEN** its entry MUST be removed from the compatibility matrix in the same or next change
+
+### Requirement: Builtin Resolver Helpers Return Builtin Identifiers
+Builtin module resolution through helper APIs MUST return builtin identifiers directly instead of attempting filesystem lookup.
+
+#### Scenario: require.resolve returns builtin id
+- **WHEN** sandboxed code calls `require.resolve("fs")`
+- **THEN** the call MUST succeed and return a builtin identifier for `fs` (for example `"fs"` or `"node:fs"`)
+
+#### Scenario: createRequire resolve returns builtin id
+- **WHEN** sandboxed code calls `createRequire("/app/entry.js").resolve("path")`
+- **THEN** the call MUST succeed and return a builtin identifier for `path` (for example `"path"` or `"node:path"`)
+
+### Requirement: Bridged Builtins Support ESM Default and Named Imports
+For bridged built-in modules exposed to ESM, the runtime MUST provide both default export access and named-import access for supported APIs.
+
+#### Scenario: fs named import is available in ESM
+- **WHEN** sandboxed ESM code executes `import { readFileSync } from "node:fs"`
+- **THEN** `readFileSync` MUST resolve to a callable function equivalent to `default.readFileSync`
+
+#### Scenario: path named import is available in ESM
+- **WHEN** sandboxed ESM code executes `import { sep } from "node:path"`
+- **THEN** `sep` MUST resolve to the same value as `default.sep`
+

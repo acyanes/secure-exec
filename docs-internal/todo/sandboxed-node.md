@@ -45,3 +45,43 @@
 
 - [x] Track unimplemented core modules from compatibility docs as explicit product decisions.
   - Fix: completed in `codify-stdlib-support-policy` (Tier 4 Deferred vs Tier 5 Unsupported classifications with rationale and runtime policy).
+
+## Security & Hardening
+
+- [ ] Bridge `crypto.getRandomValues` / `randomUUID` to host `node:crypto` instead of `Math.random()`.
+  - `packages/sandboxed-node/src/bridge/process.ts` (~line 960)
+  - Silent weak randomness is actively dangerous; either bridge to host `randomFillSync` or throw.
+
+- [ ] Add transfer size limits on base64 file I/O across the isolate boundary.
+  - `packages/sandboxed-node/src/index.ts` (~line 1138, `readFileBinaryRef` / `writeFileBinaryRef`)
+  - No cap currently; a large file read can OOM the host process.
+
+- [ ] Validate size before host-side `JSON.parse` calls.
+  - `packages/sandboxed-node/src/index.ts` (10 unvalidated `JSON.parse` calls)
+  - Crafted large payloads from sandbox can OOM the host process.
+
+- [ ] Make bridge globals non-writable on `globalThis`.
+  - `packages/sandboxed-node/src/bridge/active-handles.ts` (lines 62-65)
+  - Use `Object.defineProperty` with `writable: false, configurable: false` to prevent sandbox code from overwriting `_registerHandle` / `_unregisterHandle` / `_waitForActiveHandles`.
+
+## Performance & Correctness
+
+- [ ] Add `stat` and `exists` methods to `VirtualFileSystem` interface.
+  - `packages/sandboxed-node/src/types.ts`, `packages/sandboxed-node/src/fs-helpers.ts`
+  - Current `stat()` and `exists()` read entire file contents; O(file size) when should be O(1). Also a DoS vector via large files.
+
+- [ ] Split `index.ts` into focused modules.
+  - `packages/sandboxed-node/src/index.ts` (1,956 lines and growing)
+  - Extract: `isolate.ts`, `module-resolver.ts`, `esm-compiler.ts`, `bridge-setup.ts`, `execution.ts`.
+
+- [ ] Replace magic O_* flag numbers with named constants.
+  - `packages/sandboxed-node/src/bridge/fs.ts` (~line 690)
+  - Hardcoded integers (577, 578, 1089, etc.) are Linux-specific and undocumented.
+
+- [ ] Fix `readDirWithTypes` N+1 I/O pattern.
+  - `packages/sandboxed-node/src/fs-helpers.ts` (~line 112)
+  - Calls `readDir` per entry to check if directory; add `readDirWithTypes` or `stat` to `VirtualFileSystem`.
+
+- [ ] Make `rename` atomic or document limitation.
+  - `packages/sandboxed-node/src/fs-helpers.ts` (lines 90-92)
+  - Currently read + write + delete; crash between steps can duplicate or lose data.
