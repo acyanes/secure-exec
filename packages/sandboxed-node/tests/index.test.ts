@@ -37,6 +37,75 @@ describe("NodeProcess", () => {
 		expect(result.exports).toBe(2);
 	});
 
+	it("exports a Hono fetch handler from sandboxed code and calls it from host", async () => {
+		const fs = createFs();
+		await fs.mkdir("/node_modules/hono");
+		await fs.writeFile(
+			"/node_modules/hono/package.json",
+			JSON.stringify({
+				name: "hono",
+				main: "index.js",
+			}),
+		);
+		await fs.writeFile(
+			"/node_modules/hono/index.js",
+			`
+      class Context {
+        constructor(request) {
+          this.req = request;
+        }
+
+        text(value, status = 200, headers = {}) {
+          return new Response(value, { status, headers });
+        }
+      }
+
+      class Hono {
+        constructor() {
+          this._routes = new Map();
+          this.fetch = (request) => {
+            const url = new URL(request.url);
+            const route = this._routes.get(request.method + " " + url.pathname);
+            if (!route) {
+              return new Response("Not Found", { status: 404 });
+            }
+            return route(new Context(request));
+          };
+        }
+
+        get(path, handler) {
+          this._routes.set("GET " + path, handler);
+        }
+      }
+
+      module.exports = { Hono };
+      `,
+		);
+
+		proc = new NodeProcess({ filesystem: fs, permissions: allowAllFs });
+		const result = await proc.run<{
+			fetch?: (request: Request) => Promise<Response> | Response;
+		}>(
+			`
+      const { Hono } = require('hono');
+      const app = new Hono();
+      app.get('/hello', (c) => c.text('hello from sandbox'));
+      module.exports = { fetch: app.fetch };
+    `,
+			"/app/entry.js",
+		);
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(typeof result.exports?.fetch).toBe("function");
+
+		const response = await result.exports!.fetch!(
+			new Request("http://sandbox.test/hello"),
+		);
+		expect(response.status).toBe(200);
+		expect(await response.text()).toBe("hello from sandbox");
+	});
+
 	it("returns ESM default export namespace from run()", async () => {
 		proc = new NodeProcess();
 		const result = await proc.run(`export default 42;`, "/entry.mjs");
