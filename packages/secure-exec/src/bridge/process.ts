@@ -25,7 +25,10 @@ import {
 } from "../shared/global-exposure.js";
 
 
-// Configuration interface - values are set via globals before bridge loads
+/**
+ * Process configuration injected by the host before the bridge bundle loads.
+ * Values default to sensible Linux/x64 stubs when unset.
+ */
 export interface ProcessConfig {
   platform?: string;
   arch?: string;
@@ -87,6 +90,7 @@ const config = {
     typeof _processConfig !== "undefined" ? _processConfig.frozenTimeMs : undefined,
 };
 
+/** Get the current timestamp, returning a frozen value when timing mitigation is active. */
 function getNowMs(): number {
   if (
     config.timingMitigation === "freeze" &&
@@ -142,7 +146,10 @@ if (
 let _exitCode = 0;
 let _exited = false;
 
-// ProcessExitError class for controlled exits
+/**
+ * Thrown by `process.exit()` to unwind the sandbox call stack. The host
+ * catches this to extract the exit code without killing the isolate.
+ */
 export class ProcessExitError extends Error {
   code: number;
   constructor(code: number) {
@@ -848,7 +855,11 @@ const _queueMicrotask =
         Promise.resolve().then(fn);
       };
 
-// Timer handle class that mimics Node.js Timeout object
+/**
+ * Timer handle that mimics Node.js Timeout (ref/unref/Symbol.toPrimitive).
+ * Timers with delay > 0 use the host's `_scheduleTimer` bridge to sleep
+ * without blocking the isolate's event loop.
+ */
 class TimerHandle {
   _id: number;
   _destroyed: boolean;
@@ -1011,7 +1022,11 @@ function throwUnsupportedCryptoApi(api: "getRandomValues" | "randomUUID"): never
   throw new Error(`crypto.${api} is not supported in sandbox`);
 }
 
-// Crypto polyfill
+/**
+ * Crypto polyfill that delegates to the host for entropy. `getRandomValues`
+ * calls the host's `_cryptoRandomFill` bridge to get cryptographically secure
+ * random bytes. Subtle crypto operations are unsupported.
+ */
 export const cryptoPolyfill = {
   getRandomValues<T extends ArrayBufferView>(array: T): T {
     if (typeof _cryptoRandomFill === "undefined") {
@@ -1063,7 +1078,10 @@ export const cryptoPolyfill = {
   },
 };
 
-// Setup globals function - call this to install polyfills on globalThis
+/**
+ * Install all process/timer/URL/Buffer/crypto polyfills onto `globalThis`.
+ * Called once during bridge initialization before user code runs.
+ */
 export function setupGlobals(): void {
   const g = globalThis as Record<string, unknown>;
 

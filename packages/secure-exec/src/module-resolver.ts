@@ -1,5 +1,18 @@
+/**
+ * Module classification and resolution helpers.
+ *
+ * Node built-ins are split into three tiers:
+ * - Bridge modules: fully polyfilled by the bridge (fs, process, http, etc.)
+ * - Deferred core modules: known but not yet bridge-supported; surfaced via
+ *   deferred stubs in require paths and polyfills/wrappers in ESM paths
+ * - Unsupported core modules: known but intentionally unimplemented
+ *
+ * Everything else falls through to node-stdlib-browser polyfills or node_modules.
+ */
+
 import { hasPolyfill } from "./polyfills.js";
 
+/** Modules with full bridge implementations injected into the isolate. */
 const BRIDGE_MODULES = [
 	"fs",
 	"fs/promises",
@@ -14,6 +27,10 @@ const BRIDGE_MODULES = [
 	"v8",
 ] as const;
 
+/**
+ * Recognized built-ins that lack bridge support.
+ * Runtime handling differs by path (require stubs vs ESM/polyfill handling).
+ */
 const DEFERRED_CORE_MODULES = [
 	"net",
 	"tls",
@@ -23,6 +40,7 @@ const DEFERRED_CORE_MODULES = [
 	"worker_threads",
 ] as const;
 
+/** Built-ins that are intentionally unimplemented (throw on use). */
 const UNSUPPORTED_CORE_MODULES = [
 	"dgram",
 	"cluster",
@@ -56,6 +74,11 @@ const KNOWN_BUILTIN_MODULES = new Set([
 	"zlib",
 ]);
 
+/**
+ * Known named exports for each built-in module. Used by the ESM wrapper
+ * generator to create `export const X = _builtin.X;` re-exports so that
+ * `import { readFile } from 'fs'` works inside the isolate.
+ */
 export const BUILTIN_NAMED_EXPORTS: Record<string, string[]> = {
 	fs: [
 		"promises",
@@ -214,6 +237,11 @@ export const BUILTIN_NAMED_EXPORTS: Record<string, string[]> = {
 	],
 };
 
+/**
+ * Normalize a module specifier to its canonical form if it's a known built-in.
+ * Returns null for non-builtin specifiers.
+ * Preserves the `node:` prefix when present, strips it otherwise.
+ */
 export function normalizeBuiltinSpecifier(request: string): string | null {
 	const moduleName = request.replace(/^node:/, "");
 	if (KNOWN_BUILTIN_MODULES.has(moduleName) || hasPolyfill(moduleName)) {
@@ -222,6 +250,7 @@ export function normalizeBuiltinSpecifier(request: string): string | null {
 	return null;
 }
 
+/** Extract the directory portion of a path (lightweight dirname without node:path). */
 export function getPathDir(path: string): string {
 	const normalizedPath = path.replace(/\\/g, "/");
 	const lastSlash = normalizedPath.lastIndexOf("/");

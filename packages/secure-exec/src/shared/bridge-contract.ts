@@ -1,10 +1,21 @@
+/**
+ * Bridge contract: typed declarations for the globals shared between the
+ * host (Node.js) and the isolate (sandbox V8 context).
+ *
+ * Two categories:
+ * - Host bridge globals: set by the host before bridge code runs (fs refs, timers, etc.)
+ * - Runtime bridge globals: installed by the bridge bundle itself (active handles, modules, etc.)
+ *
+ * The typed `Ref` aliases describe the isolated-vm calling convention for each global.
+ */
+
 export type ValueOf<T> = T[keyof T];
 
 function valuesOf<T extends Record<string, string>>(object: T): Array<ValueOf<T>> {
 	return Object.values(object) as Array<ValueOf<T>>;
 }
 
-// Host-injected bridge globals configured by NodeProcess runtime wiring.
+/** Globals injected by the host before the bridge bundle executes. */
 export const HOST_BRIDGE_GLOBAL_KEYS = {
 	dynamicImport: "_dynamicImport",
 	loadPolyfill: "_loadPolyfill",
@@ -40,7 +51,7 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	error: "_error",
 } as const;
 
-// Bridge/runtime globals exposed from bridge/runtime scripts inside isolate.
+/** Globals exposed by the bridge bundle and runtime scripts inside the isolate. */
 export const RUNTIME_BRIDGE_GLOBAL_KEYS = {
 	registerHandle: "_registerHandle",
 	unregisterHandle: "_unregisterHandle",
@@ -72,6 +83,7 @@ export const BRIDGE_GLOBAL_KEY_LIST = [
 	...RUNTIME_BRIDGE_GLOBAL_KEY_LIST,
 ] as const;
 
+/** An isolated-vm Reference that resolves async via `{ result: { promise: true } }`. */
 export interface BridgeApplyRef<TArgs extends unknown[], TResult> {
 	apply(
 		ctx: undefined,
@@ -80,10 +92,16 @@ export interface BridgeApplyRef<TArgs extends unknown[], TResult> {
 	): Promise<TResult>;
 }
 
+/** An isolated-vm Reference called synchronously (blocks the isolate). */
 export interface BridgeApplySyncRef<TArgs extends unknown[], TResult> {
 	applySync(ctx: undefined, args: TArgs): TResult;
 }
 
+/**
+ * An isolated-vm Reference that blocks the isolate while the host resolves
+ * a Promise. Used for sync-looking APIs (require, readFileSync) that need
+ * async host operations.
+ */
 export interface BridgeApplySyncPromiseRef<TArgs extends unknown[], TResult> {
 	applySyncPromise(ctx: undefined, args: TArgs): TResult;
 }
@@ -125,6 +143,7 @@ export type FsStatBridgeRef = BridgeApplySyncPromiseRef<[string], string>;
 export type FsUnlinkBridgeRef = BridgeApplySyncPromiseRef<[string], void>;
 export type FsRenameBridgeRef = BridgeApplySyncPromiseRef<[string, string], void>;
 
+/** Combined filesystem bridge facade installed as `globalThis._fs` in the isolate. */
 export interface FsFacadeBridge {
 	readFile: FsReadFileBridgeRef;
 	writeFile: FsWriteFileBridgeRef;

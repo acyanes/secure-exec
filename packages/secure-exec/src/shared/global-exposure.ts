@@ -1,3 +1,11 @@
+/**
+ * Classification for globals the runtime installs on the isolate's `globalThis`.
+ *
+ * - `hardened`: non-writable, non-configurable. Prevents sandbox code from
+ *   replacing bridge callbacks or lifecycle hooks.
+ * - `mutable-runtime-state`: writable per-execution state (module cache,
+ *   stdin data, CJS module/exports wrappers) that must be reset between runs.
+ */
 export type CustomGlobalClassification =
 	| "hardened"
 	| "mutable-runtime-state";
@@ -335,6 +343,10 @@ interface ExposeGlobalOptions {
 	enumerable?: boolean;
 }
 
+/**
+ * Define a property on `target` using `Object.defineProperty`.
+ * By default the property is non-writable/non-configurable (hardened).
+ */
 export function exposeGlobalBinding(
 	target: Record<string, unknown>,
 	name: string,
@@ -351,10 +363,12 @@ export function exposeGlobalBinding(
 	});
 }
 
+/** Install a hardened (non-writable) global on `globalThis`. */
 export function exposeCustomGlobal(name: string, value: unknown): void {
 	exposeGlobalBinding(globalThis as Record<string, unknown>, name, value);
 }
 
+/** Install a writable global on `globalThis` for per-execution state. */
 export function exposeMutableRuntimeStateGlobal(
 	name: string,
 	value: unknown,
@@ -364,6 +378,12 @@ export function exposeMutableRuntimeStateGlobal(
 	});
 }
 
+/**
+ * Inline JavaScript source that provides `exposeCustomGlobal` and
+ * `exposeMutableRuntimeStateGlobal` inside the isolate's V8 context.
+ * Evaluated by the host after context creation so that bridge/runtime
+ * scripts can harden their own globals.
+ */
 export const ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE = `(() => {
   const exposeGlobalBinding = (name, value, mutable = false) => {
     Object.defineProperty(globalThis, name, {

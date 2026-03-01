@@ -160,7 +160,9 @@ export function createRequire(filename: string | URL): RequireFunction {
 }
 
 /**
- * Module class constructor (for compatibility with promzard and similar)
+ * Polyfill of Node.js `Module` class for sandbox compatibility. Provides
+ * `_compile`, `_resolveFilename`, `_load`, `_extensions`, and `_cache` statics
+ * that npm tooling (promzard, resolve, etc.) relies on.
  */
 export class Module {
   id: string;

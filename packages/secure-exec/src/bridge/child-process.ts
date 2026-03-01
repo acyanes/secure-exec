@@ -47,7 +47,11 @@ declare const _unregisterHandle: UnregisterHandleBridgeFn;
 // Active children registry - maps session ID to ChildProcess
 const activeChildren = new Map<number, ChildProcess>();
 
-// Global dispatcher - host calls this when data arrives
+/**
+ * Global dispatcher invoked by the host when child process data arrives.
+ * Routes stdout/stderr chunks and exit codes to the corresponding ChildProcess
+ * instance by session ID, and unregisters the active handle on exit.
+ */
 const childProcessDispatch = (
   sessionId: number,
   type: "stdout" | "stderr" | "exit",
@@ -106,7 +110,11 @@ interface OutputStreamStub {
   pipe<T extends NodeJS.WritableStream>(dest: T): T;
 }
 
-// ChildProcess class - simplified interface, not strictly satisfying nodeChildProcess.ChildProcess
+/**
+ * Polyfill of Node.js `ChildProcess`. Provides event-emitting stdin/stdout/stderr
+ * streams. In streaming mode, data arrives via the `_childProcessDispatch` global
+ * that the host calls with stdout/stderr/exit events keyed by session ID.
+ */
 class ChildProcess {
   private _listeners: Record<string, EventListener[]> = {};
   private _onceListeners: Record<string, EventListener[]> = {};

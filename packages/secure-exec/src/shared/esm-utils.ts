@@ -37,6 +37,10 @@ export function extractDynamicImportSpecifiers(code: string): string[] {
 /**
  * Convert CJS module to ESM-compatible wrapper.
  */
+/**
+ * Wrap CommonJS code in an ESM-compatible module that exports `module.exports`
+ * as the default export plus any statically-detectable named exports.
+ */
 export function wrapCJSForESM(code: string): string {
 	const modulePath = "/<cjs-module>.cjs";
 	return wrapCJSForESMWithModulePath(code, modulePath);
@@ -78,6 +82,11 @@ export function wrapCJSForESMWithModulePath(
 	  `;
 }
 
+/**
+ * Scan CJS code for `module.exports.X =`, `exports.X =`, and
+ * `Object.defineProperty(exports, 'X', ...)` patterns to discover named exports
+ * that can be re-exported from the ESM wrapper.
+ */
 function extractCjsNamedExports(code: string): string[] {
 	const names = new Set<string>();
 	const add = (name: string) => {

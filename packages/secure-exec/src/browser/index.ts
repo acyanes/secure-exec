@@ -50,6 +50,12 @@ function serializePermissions(permissions?: Permissions): SerializedPermissions 
 	};
 }
 
+/**
+ * Browser-side sandbox that runs code in a Web Worker. Communicates with the
+ * worker via `postMessage` using a request/response protocol keyed by
+ * monotonic IDs. The worker initializes its own runtime (permissions, fs,
+ * network, bridge modules) before accepting exec/run requests.
+ */
 export class BrowserSandbox {
 	private worker: Worker;
 	private nextId = 1;

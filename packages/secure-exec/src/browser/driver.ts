@@ -47,6 +47,11 @@ async function getRootHandle(): Promise<FileSystemDirectoryHandle> {
 	return navigator.storage.getDirectory();
 }
 
+/**
+ * VFS backed by the Origin Private File System (OPFS) API. Falls back to
+ * InMemoryFileSystem when OPFS is unavailable. Rename is not supported
+ * (throws ENOSYS) since OPFS doesn't provide atomic rename.
+ */
 export class OpfsFileSystem implements VirtualFileSystem {
 	private rootPromise: Promise<FileSystemDirectoryHandle>;
 
@@ -229,6 +234,7 @@ export interface BrowserDriverOptions {
 	useDefaultNetwork?: boolean;
 }
 
+/** Create an OPFS-backed filesystem, falling back to in-memory if OPFS is unavailable. */
 export async function createOpfsFileSystem(): Promise<VirtualFileSystem> {
 	if (!("storage" in navigator) || typeof navigator.storage.getDirectory !== "function") {
 		return createInMemoryFileSystem();
@@ -236,6 +242,7 @@ export async function createOpfsFileSystem(): Promise<VirtualFileSystem> {
 	return new OpfsFileSystem();
 }
 
+/** Network adapter that delegates to the browser's native `fetch`. DNS and http2 are unsupported. */
 export function createBrowserNetworkAdapter(): NetworkAdapter {
 	return {
 		async fetch(url, options) {
@@ -301,6 +308,7 @@ export function createBrowserNetworkAdapter(): NetworkAdapter {
 	};
 }
 
+/** Assemble a browser-side SandboxDriver with permission-wrapped adapters. */
 export async function createBrowserDriver(
 	options: BrowserDriverOptions = {},
 ): Promise<SandboxDriver> {

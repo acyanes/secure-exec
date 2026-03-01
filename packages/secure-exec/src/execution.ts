@@ -9,6 +9,7 @@ import type {
 
 const MAX_ERROR_MESSAGE_CHARS = 8192;
 
+/** Truncate long error messages to prevent unbounded output. */
 function boundErrorMessage(message: string): string {
 	if (message.length <= MAX_ERROR_MESSAGE_CHARS) {
 		return message;
@@ -16,6 +17,12 @@ function boundErrorMessage(message: string): string {
 	return `${message.slice(0, MAX_ERROR_MESSAGE_CHARS)}...[Truncated]`;
 }
 
+/**
+ * Options for a single execution within an isolate.
+ *
+ * - `run`: evaluate code and return `module.exports` (library mode)
+ * - `exec`: evaluate code as a script with process globals (CLI mode)
+ */
 type ExecuteOptions = {
 	mode: "run" | "exec";
 	code: string;
@@ -28,6 +35,12 @@ type ExecuteOptions = {
 	onConsoleLog?: ConsoleLogHook;
 };
 
+/**
+ * Abstraction over the runtime environment that `executeWithRuntime` depends on.
+ * The `NodeProcess` class implements this interface, providing all the
+ * isolate setup, module loading, and bridge wiring that the generic
+ * execution loop delegates to.
+ */
 type ExecutionRuntime = {
 	isolate: ivm.Isolate;
 	esmModuleCache: Map<string, ivm.Module>;
@@ -100,6 +113,15 @@ type ExecutionRuntime = {
 	timeoutExitCode: number;
 };
 
+/**
+ * Core execution loop shared between `run()` and `exec()` modes.
+ *
+ * Creates a fresh V8 context, installs console/bridge/module globals, detects
+ * ESM vs CJS format, compiles and runs the code, waits for active handles
+ * (child processes, HTTP servers) to drain, and returns the exit code.
+ *
+ * On timeout the isolate is recycled to free any stuck V8 state.
+ */
 export async function executeWithRuntime<T = unknown>(
 	runtime: ExecutionRuntime,
 	options: ExecuteOptions,

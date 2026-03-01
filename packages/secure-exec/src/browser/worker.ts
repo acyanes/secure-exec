@@ -92,6 +92,7 @@ function revivePermission(source?: string): ((req: unknown) => { allow: boolean 
 	}
 }
 
+/** Deserialize permission callbacks that were stringified for transfer across the Worker boundary. */
 function revivePermissions(serialized?: SerializedPermissions): Permissions | undefined {
 	if (!serialized) return undefined;
 	const perms: Permissions = {};
@@ -102,6 +103,10 @@ function revivePermissions(serialized?: SerializedPermissions): Permissions | un
 	return perms;
 }
 
+/**
+ * Wrap a sync function in the bridge calling convention (`applySync`) so
+ * bridge code can call it the same way it calls isolated-vm References.
+ */
 function makeApplySync<TArgs extends unknown[], TResult>(
 	fn: (...args: TArgs) => TResult,
 ) {
@@ -132,6 +137,10 @@ function makeApplyPromise<TArgs extends unknown[], TResult>(
 	};
 }
 
+/**
+ * Initialize the worker-side runtime: set up filesystem, network, bridge
+ * globals, and load the bridge bundle. Called once before any exec/run.
+ */
 async function initRuntime(payload: InitPayload): Promise<void> {
 	if (initialized) return;
 
@@ -409,6 +418,10 @@ function updateProcessConfig(options?: ExecOptions): void {
 	}
 }
 
+/**
+ * Execute user code as a script (process-style). Transforms ESM/dynamic
+ * imports, sets up module/exports globals, and waits for active handles.
+ */
 async function execScript(
 	code: string,
 	options?: ExecOptions,

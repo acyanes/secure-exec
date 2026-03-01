@@ -1,3 +1,11 @@
+/**
+ * Permission enforcement layer.
+ *
+ * Wraps filesystem, network, and command-executor adapters with permission
+ * checks that throw EACCES on denial. When no permission callback is provided
+ * for a category, guarded operations in that category are denied by default.
+ */
+
 import { createEaccesError, createEnosysError } from "./errors.js";
 import type {
 	CommandExecutor,
@@ -8,6 +16,7 @@ import type {
 	VirtualFileSystem,
 } from "../types.js";
 
+/** Run the permission check; throw the deny error if no checker exists or it denies. */
 function checkPermission<T>(
 	check: ((request: T) => { allow: boolean; reason?: string }) | undefined,
 	request: T,
@@ -73,6 +82,10 @@ function fsOpToSyscall(op: FsAccessRequest["op"]): string {
 	}
 }
 
+/**
+ * Wrap a VirtualFileSystem so every operation passes through the fs permission check.
+ * Throws EACCES if the permission callback denies or is absent.
+ */
 export function wrapFileSystem(
 	fs: VirtualFileSystem,
 	permissions?: Permissions,
@@ -182,6 +195,11 @@ export function wrapFileSystem(
 	};
 }
 
+/**
+ * Wrap a NetworkAdapter so externally-originating operations (`listen`, `fetch`,
+ * `dns`, `http`) pass through the network permission check.
+ * `httpServerClose` is forwarded as-is.
+ */
 export function wrapNetworkAdapter(
 	adapter: NetworkAdapter,
 	permissions?: Permissions,
@@ -236,6 +254,7 @@ export function wrapNetworkAdapter(
 	};
 }
 
+/** Wrap a CommandExecutor so spawn passes through the childProcess permission check. */
 export function wrapCommandExecutor(
 	executor: CommandExecutor,
 	permissions?: Permissions,
@@ -261,6 +280,7 @@ export function envAccessAllowed(
 	);
 }
 
+/** Create a stub VFS where every operation throws ENOSYS (no filesystem configured). */
 export function createFsStub(): VirtualFileSystem {
 	const stub = (op: string, path?: string) => {
 		throw createEnosysError(op, path);
@@ -281,6 +301,7 @@ export function createFsStub(): VirtualFileSystem {
 	};
 }
 
+/** Create a stub network adapter where every operation throws ENOSYS. */
 export function createNetworkStub(): NetworkAdapter {
 	const stub = (op: string, path?: string) => {
 		throw createEnosysError(op, path);
@@ -294,6 +315,7 @@ export function createNetworkStub(): NetworkAdapter {
 	};
 }
 
+/** Create a stub executor where spawn throws ENOSYS. */
 export function createCommandExecutorStub(): CommandExecutor {
 	return {
 		spawn: () => {
@@ -302,6 +324,10 @@ export function createCommandExecutorStub(): CommandExecutor {
 	};
 }
 
+/**
+ * Filter an env record through the env permission check, returning only
+ * allowed key-value pairs. Returns empty object if no permissions configured.
+ */
 export function filterEnv(
 	env: Record<string, string> | undefined,
 	permissions?: Permissions,

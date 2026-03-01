@@ -4,6 +4,10 @@ import path from "node:path";
 import { createEaccesError } from "../shared/errors.js";
 import type { VirtualDirEntry, VirtualFileSystem, VirtualStat } from "../types.js";
 
+/**
+ * Options controlling which host node_modules are projected into the sandbox.
+ * The overlay exposes `<cwd>/node_modules` read-only by default.
+ */
 export interface ModuleAccessOptions {
 	cwd?: string;
 	/**
@@ -80,6 +84,11 @@ function isNativeAddonPath(pathValue: string): boolean {
 	return pathValue.endsWith(".node");
 }
 
+/**
+ * Walk the host node_modules directory and its pnpm virtual-store, resolving
+ * symlink targets to build the full set of allowed host paths. This prevents
+ * symlink-based escapes from the overlay projection.
+ */
 function collectOverlayAllowedRoots(hostNodeModulesRoot: string): string[] {
 	const roots = new Set<string>([hostNodeModulesRoot]);
 	const symlinkScanRoots = [hostNodeModulesRoot, path.join(hostNodeModulesRoot, ".pnpm", "node_modules")];
@@ -129,6 +138,13 @@ function collectOverlayAllowedRoots(hostNodeModulesRoot: string): string[] {
 	return [...roots];
 }
 
+/**
+ * Union filesystem that overlays host `node_modules` (read-only) onto a base
+ * VFS. Sandbox code sees `/root/node_modules/...` which maps to the host's
+ * real `<cwd>/node_modules/...`. Write operations to the overlay throw EACCES.
+ * Symlinks are resolved and validated against the allowed-roots allowlist to
+ * prevent path-traversal escapes. Native `.node` addons are rejected.
+ */
 export class ModuleAccessFileSystem implements VirtualFileSystem {
 	private readonly baseFileSystem?: VirtualFileSystem;
 	private readonly hostNodeModulesRoot: string | null;

@@ -24,6 +24,11 @@ function dirname(path: string): string {
 	return `/${parts.slice(0, -1).join("/")}`;
 }
 
+/**
+ * A fully in-memory VirtualFileSystem backed by Maps.
+ * Used as the default filesystem for the browser sandbox and for tests.
+ * Paths are always POSIX-style (forward slashes, rooted at "/").
+ */
 export class InMemoryFileSystem implements VirtualFileSystem {
 	private files = new Map<string, Uint8Array>();
 	private dirs = new Set<string>(["/"]);

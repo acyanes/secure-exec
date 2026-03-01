@@ -19,6 +19,7 @@ import type {
 } from "../types.js";
 import type { ModuleAccessOptions } from "./module-access.js";
 
+/** Options for assembling a Node.js-backed SandboxDriver. */
 export interface NodeDriverOptions {
 	filesystem?: VirtualFileSystem;
 	moduleAccess?: ModuleAccessOptions;
@@ -28,6 +29,7 @@ export interface NodeDriverOptions {
 	useDefaultNetwork?: boolean;
 }
 
+/** Thin VFS adapter that delegates directly to `node:fs/promises`. */
 export class NodeFileSystem implements VirtualFileSystem {
 	async readFile(path: string): Promise<Uint8Array> {
 		return fs.readFile(path);
@@ -106,6 +108,7 @@ export class NodeFileSystem implements VirtualFileSystem {
 	}
 }
 
+/** Restrict HTTP server hostname to loopback interfaces; throws on non-local addresses. */
 function normalizeLoopbackHostname(hostname?: string): string {
 	if (!hostname || hostname === "localhost") return "127.0.0.1";
 	if (hostname === "127.0.0.1" || hostname === "::1") return hostname;
@@ -115,6 +118,11 @@ function normalizeLoopbackHostname(hostname?: string): string {
 	);
 }
 
+/**
+ * Create a Node.js network adapter that provides real fetch, DNS, HTTP client,
+ * and loopback-only HTTP server support. Binary responses are base64-encoded
+ * with an `x-body-encoding` header so the bridge can decode them.
+ */
 export function createDefaultNetworkAdapter(): NetworkAdapter {
 	const servers = new Map<number, HttpServer>();
 
@@ -347,6 +355,11 @@ export function createDefaultNetworkAdapter(): NetworkAdapter {
 	};
 }
 
+/**
+ * Assemble a SandboxDriver from Node.js-native adapters. Wraps the filesystem
+ * in a ModuleAccessFileSystem overlay and applies permissive defaults when any
+ * adapter is explicitly provided.
+ */
 export function createNodeDriver(options: NodeDriverOptions = {}): SandboxDriver {
 	const filesystem = new ModuleAccessFileSystem(
 		options.filesystem,

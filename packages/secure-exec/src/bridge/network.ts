@@ -332,7 +332,12 @@ export const dns = {
 // Event listener type
 type EventListener = (...args: unknown[]) => void;
 
-// IncomingMessage class
+/**
+ * Polyfill of Node.js `http.IncomingMessage` (client-side response). Buffers
+ * the response body eagerly and emits `data`/`end` events on listener
+ * registration (flowing mode). Supports base64 binary decoding via
+ * `x-body-encoding` header.
+ */
 export class IncomingMessage {
   headers: Record<string, string>;
   rawHeaders: string[];
@@ -632,7 +637,11 @@ export class IncomingMessage {
   }
 }
 
-// ClientRequest class
+/**
+ * Polyfill of Node.js `http.ClientRequest`. Executes the request asynchronously
+ * via the `_networkHttpRequestRaw` bridge and emits a `response` event with
+ * an IncomingMessage.
+ */
 export class ClientRequest {
   private _options: nodeHttp.RequestOptions;
   private _callback?: (res: IncomingMessage) => void;
@@ -900,6 +909,10 @@ class ServerIncomingMessage {
   }
 }
 
+/**
+ * Sandbox-side response writer for HTTP server requests. Collects headers and
+ * body chunks, then serializes to JSON for transfer back to the host.
+ */
 class ServerResponseBridge {
   statusCode = 200;
   statusMessage = "OK";
@@ -1043,6 +1056,12 @@ class ServerResponseBridge {
   }
 }
 
+/**
+ * Polyfill of Node.js `http.Server`. Delegates actual listening to the host
+ * via the `_networkHttpServerListenRaw` bridge. Incoming requests are
+ * dispatched through `_httpServerDispatch` which invokes the request listener
+ * inside the isolate. Registers an active handle to keep the sandbox alive.
+ */
 class Server {
   listening = false;
   private _listeners: Record<string, EventListener[]> = {};
@@ -1193,6 +1212,7 @@ class Server {
   }
 }
 
+/** Route an incoming HTTP request to the server's request listener and return the serialized response. */
 async function dispatchServerRequest(
   serverId: number,
   requestJson: string

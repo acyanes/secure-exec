@@ -69,6 +69,7 @@ export async function resolveModule(
 	return resolveNodeModules(request, fromDir, fs, mode);
 }
 
+/** Resolve `#`-prefixed import-map specifiers by walking up to find the nearest package.json with `imports`. */
 async function resolvePackageImports(
 	request: string,
 	fromDir: string,
@@ -132,6 +133,7 @@ async function resolveRelative(
 /**
  * Resolve a bare module import by walking up node_modules
  */
+/** Walk up from `fromDir` checking `node_modules/` (including pnpm virtual-store layouts) for the package. */
 async function resolveNodeModules(
 	request: string,
 	fromDir: string,
@@ -245,6 +247,11 @@ function getNodeModulesCandidatePackageDirs(
 	return Array.from(candidates);
 }
 
+/**
+ * Given a package directory and optional subpath, resolve the entry file using
+ * `exports` map (if present), then `main`, then `index.js` fallback. When
+ * `exports` is defined, no fallback to `main` occurs (Node.js semantics).
+ */
 async function resolvePackageEntryFromDir(
 	packageDir: string,
 	subpath: string,
@@ -361,6 +368,7 @@ async function readPackageJson(
 	}
 }
 
+/** Treat EACCES/EPERM as "path not available" during resolution probing. */
 function isPermissionProbeError(error: unknown): boolean {
 	const err = error as NodeJS.ErrnoException;
 	return err?.code === "EACCES" || err?.code === "EPERM";
@@ -391,6 +399,10 @@ function getPackageEntryField(
 	return "index.js";
 }
 
+/**
+ * Implement Node.js `package.json` "exports" resolution. Handles string, array,
+ * conditions-object, subpath keys, and wildcard `*` patterns.
+ */
 function resolveExportsTarget(
 	exportsField: unknown,
 	subpath: string,
@@ -445,6 +457,7 @@ function resolveExportsTarget(
 	return null;
 }
 
+/** Pick the first matching condition key (import/require/node/default) from an exports conditions object. */
 function resolveConditionalTarget(
 	record: Record<string, unknown>,
 	mode: ResolveMode,
@@ -469,6 +482,7 @@ function resolveConditionalTarget(
 	return null;
 }
 
+/** Resolve a `#`-prefixed specifier against a package.json `imports` field, including wildcard patterns. */
 function resolveImportsTarget(
 	importsField: unknown,
 	specifier: string,

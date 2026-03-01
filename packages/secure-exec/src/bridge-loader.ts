@@ -9,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Cache the bridge code
 let bridgeCodeCache: string | null = null;
 
+/** Locate the bridge TypeScript source for on-demand compilation (dev only). */
 function findBridgeSourcePath(): string | null {
 	const candidates = [
 		path.join(__dirname, "bridge", "index.ts"),
@@ -20,6 +21,7 @@ function findBridgeSourcePath(): string | null {
 	return null;
 }
 
+/** Walk a directory tree and return the newest file modification time. */
 function getLatestMtimeMs(dir: string): number {
 	let latest = 0;
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -33,6 +35,10 @@ function getLatestMtimeMs(dir: string): number {
 	return latest;
 }
 
+/**
+ * Auto-compile the bridge IIFE bundle from TypeScript source if stale.
+ * Skips rebuilding when the existing bundle is newer than all source files.
+ */
 function ensureBridgeBundle(bridgePath: string): void {
 	const sourcePath = findBridgeSourcePath();
 
