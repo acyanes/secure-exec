@@ -48,12 +48,12 @@ Both boundaries matter. The isolate alone isn't enough without a hardened host, 
 
 ## Module Loading Boundary
 
-When using driver-managed module access, `secure-exec` can project selected host dependencies into sandbox paths under `/app/node_modules`.
+Node runtime executions always expose a read-only dependency overlay at `/app/node_modules` sourced from `<cwd>/node_modules` (default `cwd` is host `process.cwd()`, configurable via `moduleAccess.cwd`).
 
-- Projection is allowlist-based: you explicitly choose root packages.
-- Resolved package artifacts are constrained to canonical paths under `<cwd>/node_modules`.
-- Projected module paths are read-only runtime state.
+- Overlay reads are constrained to canonical paths under `<cwd>/node_modules`.
+- Overlay paths under `/app/node_modules` are read-only runtime state.
 - Native addons (`.node`) are rejected in this mode.
+- Access outside overlay paths remains permission-gated and deny-by-default.
 
 This preserves a narrow runtime boundary for dependency loading while still allowing controlled reuse of host-installed `node_modules`.
 

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	allowAllEnv,
 	allowAllFs,
+	createNodeDriver,
 	NodeFileSystem,
 	NodeProcess,
 } from "../src/index.js";
@@ -83,6 +84,30 @@ describe("compatibility project matrix", () => {
 	it("discovers at least one fixture project", () => {
 		expect(discoveredFixtures.length).toBeGreaterThan(0);
 	});
+
+	it(
+		"runs module-access-pass fixture in overlay mode with host node parity",
+		async () => {
+			const fixture = discoveredFixtures.find(
+				(item) => item.name === "module-access-pass",
+			);
+			if (!fixture) {
+				throw new Error('Fixture "module-access-pass" was not discovered');
+			}
+
+			const prepared = await prepareFixtureProject(fixture);
+			const host = await runHostExecution(prepared.projectDir, fixture.metadata.entry);
+			const sandbox = await runOverlaySandboxExecution(
+				prepared.projectDir,
+				fixture.metadata.entry,
+			);
+
+			expect(sandbox.code).toBe(host.code);
+			expect(sandbox.stdout).toBe(host.stdout);
+			expect(sandbox.stderr).toBe(host.stderr);
+		},
+		TEST_TIMEOUT_MS,
+	);
 
 	for (const fixture of discoveredFixtures) {
 		it(
@@ -387,6 +412,51 @@ async function runSandboxExecution(
 		const result = await proc.exec(entryCode, {
 			filePath: entryPath,
 			cwd: projectDir,
+			env: {},
+		});
+		return normalizeEnvelope(
+			{
+				code: result.code,
+				stdout: formatConsoleChannel(capturedEvents, "stdout"),
+				stderr:
+					formatConsoleChannel(capturedEvents, "stderr") + result.stderr,
+			},
+			projectDir,
+		);
+	} finally {
+		proc.dispose();
+	}
+}
+
+async function runOverlaySandboxExecution(
+	projectDir: string,
+	entryRelativePath: string,
+): Promise<ResultEnvelope> {
+	// Execute the fixture entrypoint with overlay-only node_modules access.
+	const entryPath = path.join(projectDir, entryRelativePath);
+	const entryCode = await readFile(entryPath, "utf8");
+	const capturedEvents: CapturedConsoleEvent[] = [];
+	const driver = createNodeDriver({
+		moduleAccess: {
+			cwd: projectDir,
+		},
+	});
+	const sandboxEntry = `/app/${entryRelativePath.replace(/\\/g, "/").replace(/^\/+/, "")}`;
+	const proc = new NodeProcess({
+		driver,
+		onConsoleLog: (event) => {
+			capturedEvents.push(event);
+		},
+		processConfig: {
+			cwd: "/app",
+			env: {},
+		},
+	});
+
+	try {
+		const result = await proc.exec(entryCode, {
+			filePath: sandboxEntry,
+			cwd: "/app",
 			env: {},
 		});
 		return normalizeEnvelope(

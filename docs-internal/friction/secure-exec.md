@@ -6,12 +6,16 @@
    - Symptom: runtime execution accumulated console output in host-managed `stdout`/`stderr` arrays by default, enabling memory amplification under high-volume logs.
    - Fix: runtime now drops console output by default and exposes an explicit streaming hook (`onConsoleLog`) for host-controlled log handling.
    - Compatibility trade-off: `exec()`/`run()` no longer mirror Node stdout/stderr buffering by default; consumers that need console output must opt into hook-based streaming.
+2. **[resolved]** Node module loading depended on allowlist projection setup and split filesystem paths.
+   - Symptom: sandbox `node_modules` availability varied by `moduleAccess.allowPackages` setup and base filesystem mount location, which added resolver complexity and setup fragility.
+   - Fix: Node driver now always composes a read-only `/app/node_modules` overlay from `<cwd>/node_modules`, even without a base filesystem adapter. Overlay reads are canonical-path scoped to `<cwd>/node_modules`; writes/mutations remain denied; `.node` native addons are rejected.
+   - Compatibility trade-off: allowlist-scoped dependency visibility was removed in favor of scoped full-overlay readability under `<cwd>/node_modules`; callers needing stricter package-level exposure must enforce it outside runtime for now.
 
 ## 2026-02-28
 
 1. **[resolved]** Reusing host `node_modules` lacked a bounded runtime contract.
    - Symptom: loading workspace dependencies required ad-hoc filesystem setup, and direct host filesystem use risked widening module trust boundaries.
-   - Fix: added driver `moduleAccess` projection (`cwd` + explicit `allowPackages`) that resolves dependency closure from host installs but enforces strict canonical containment under `<cwd>/node_modules`, rejects `.node` native addons, and exposes projected modules as read-only under `/app/node_modules`.
+   - Fix: initially added driver `moduleAccess` projection (`cwd` + explicit `allowPackages`) with dependency-closure discovery; later superseded by always-on scoped `/app/node_modules` overlay rooted at `<cwd>/node_modules`.
    - Compatibility note: this path targets `node_modules` installs and intentionally fails closed on out-of-scope symlink/canonical-path resolution.
 2. **[resolved]** Isolate bootstrap code relied on runtime template-string assembly.
    - Symptom: helper paths like `getRequireSetupCode`, bridge bootstrap wrappers, and inline `context.eval` setup snippets were assembled in host runtime files, which made isolate-executed code harder to audit and easier to regress.

@@ -117,7 +117,7 @@ export interface NodeProcessOptions {
 	driver?: SandboxDriver; // Preferred system driver
 	permissions?: Permissions; // Applied when creating default driver
 	filesystem?: VirtualFileSystem; // For accessing virtual filesystem
-	moduleAccess?: ModuleAccessOptions; // Optional host node_modules projection policy
+	moduleAccess?: ModuleAccessOptions; // Optional host node_modules overlay config
 	processConfig?: ProcessConfig; // Process object configuration
 	commandExecutor?: CommandExecutor; // For child_process support
 	networkAdapter?: NetworkAdapter; // For network support (fetch, http, https, dns)
@@ -185,7 +185,7 @@ class PayloadLimitError extends Error {
 export class NodeProcess {
 	private isolate: ivm.Isolate;
 	private memoryLimit: number;
-	private filesystem?: VirtualFileSystem;
+	private filesystem: VirtualFileSystem;
 	private processConfig: ProcessConfig;
 	private commandExecutor?: CommandExecutor;
 	private networkAdapter?: NetworkAdapter;
@@ -484,10 +484,6 @@ export class NodeProcess {
 	private async getNearestPackageType(
 		filePath: string,
 	): Promise<"module" | "commonjs" | null> {
-		if (!this.filesystemEnabled || !this.filesystem) {
-			return null;
-		}
-
 		let currentDir = this.getPathDir(filePath);
 		const visitedDirs: string[] = [];
 		while (true) {
@@ -616,10 +612,6 @@ export class NodeProcess {
 		}
 
 		// Bare specifier - try to resolve from node_modules
-		if (!this.filesystemEnabled || !this.filesystem) {
-			return null;
-		}
-
 		return resolveModule(specifier, referrerDir, this.filesystem, "import");
 	}
 
@@ -631,7 +623,7 @@ export class NodeProcess {
 		// Dynamic import hooks may pass either a module file path or a module
 		// directory path. Prefer filesystem metadata so we do not strip one level
 		// when the referrer is already a directory.
-		if (this.filesystemEnabled && this.filesystem) {
+		if (this.filesystem) {
 			try {
 				const statInfo = await this.filesystem.stat(referrerPath);
 				if (statInfo.isDirectory) {
@@ -721,9 +713,6 @@ export class NodeProcess {
 			}
 		} else {
 			// Load from filesystem
-			if (!this.filesystemEnabled || !this.filesystem) {
-				throw new Error("VirtualFileSystem required for loading modules");
-			}
 			const source = await loadFile(filePath, this.filesystem);
 			if (source === null) {
 				throw new Error(`Cannot load module: ${filePath}`);
@@ -1047,9 +1036,6 @@ export class NodeProcess {
 				if (builtinSpecifier) {
 					return builtinSpecifier;
 				}
-				if (!this.filesystemEnabled || !this.filesystem) {
-					return null;
-				}
 				return resolveModule(request, fromDir, this.filesystem);
 			},
 		);
@@ -1058,9 +1044,6 @@ export class NodeProcess {
 		// Also transforms dynamic import() calls to __dynamicImport()
 		const loadFileRef = new ivm.Reference(
 			async (path: string): Promise<string | null> => {
-				if (!this.filesystemEnabled || !this.filesystem) {
-					return null;
-				}
 				const source = await loadFile(path, this.filesystem);
 				if (source === null) {
 					return null;
@@ -1098,7 +1081,7 @@ export class NodeProcess {
 
 		// Set up fs References (stubbed if filesystem is disabled)
 		{
-			const fs = this.filesystem ?? createFsStub();
+			const fs = this.filesystem;
 
 			// Create individual References for each fs operation
 			const readFileRef = new ivm.Reference(async (path: string) => {

@@ -44,7 +44,7 @@ describe("moduleAccess compatibility fixture", () => {
 	});
 
 	it(
-		"matches host Node output for allowlisted + transitive package loading",
+		"matches host Node output for overlay-backed package loading",
 		async () => {
 			const projectDir = await mkdtemp(
 				path.join(tmpdir(), "secure-exec-module-access-fixture-"),
@@ -77,7 +77,6 @@ describe("moduleAccess compatibility fixture", () => {
 			const sandboxDriver = createNodeDriver({
 				moduleAccess: {
 					cwd: projectDir,
-					allowPackages: ["entry-lib"],
 				},
 			});
 			const capturedEvents: CapturedConsoleEvent[] = [];

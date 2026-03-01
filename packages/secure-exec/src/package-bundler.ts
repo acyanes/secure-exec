@@ -287,7 +287,11 @@ async function resolvePath(
 			return basePath;
 		}
 		isDirectory = true;
-	} catch {
+	} catch (error) {
+		const err = error as NodeJS.ErrnoException;
+		if (err?.code && err.code !== "ENOENT") {
+			throw err;
+		}
 		// Path doesn't exist directly
 	}
 

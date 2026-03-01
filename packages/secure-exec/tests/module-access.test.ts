@@ -2,7 +2,11 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { NodeProcess, createNodeDriver } from "../src/index.js";
+import {
+	NodeProcess,
+	createInMemoryFileSystem,
+	createNodeDriver,
+} from "../src/index.js";
 
 type PackageFiles = Record<string, string | Uint8Array>;
 
@@ -47,8 +51,6 @@ async function writePackage(
 	options: {
 		main?: string;
 		dependencies?: Record<string, string>;
-		optionalDependencies?: Record<string, string>;
-		peerDependencies?: Record<string, string>;
 		files: PackageFiles;
 	},
 ): Promise<string> {
@@ -62,8 +64,6 @@ async function writePackage(
 		name: packageName,
 		main: options.main ?? "index.js",
 		dependencies: options.dependencies,
-		optionalDependencies: options.optionalDependencies,
-		peerDependencies: options.peerDependencies,
 	};
 	await writeFile(
 		path.join(packageDir, "package.json"),
@@ -77,7 +77,7 @@ async function writePackage(
 	return packageDir;
 }
 
-describe("moduleAccess", () => {
+describe("moduleAccess overlay", () => {
 	const tempDirs: string[] = [];
 	let proc: NodeProcess | undefined;
 
@@ -91,7 +91,7 @@ describe("moduleAccess", () => {
 		}
 	});
 
-	it("loads allowlisted packages and transitive runtime dependencies", async () => {
+	it("loads third-party packages from overlay without base filesystem", async () => {
 		const projectDir = await createTempProject();
 		tempDirs.push(projectDir);
 
@@ -108,35 +108,22 @@ describe("moduleAccess", () => {
 				"index.js": "module.exports = { value: require('transitive-dep').value + 1 };",
 			},
 		});
-		await writePackage(projectDir, "blocked-root", {
-			files: {
-				"index.js": "module.exports = { value: 'blocked' };",
-			},
-		});
 
 		const driver = createNodeDriver({
 			moduleAccess: {
 				cwd: projectDir,
-				allowPackages: ["allowed-root"],
 			},
 		});
 		const capture = createConsoleCapture();
 		proc = new NodeProcess({ driver, onConsoleLog: capture.onConsoleLog });
 
-		const allowedResult = await proc.exec(
+		const result = await proc.exec(
 			`const mod = require("allowed-root"); console.log(mod.value);`,
 			{ cwd: "/app", filePath: "/app/index.js" },
 		);
-		expect(allowedResult.code).toBe(0);
-		expect(allowedResult.stdout).toBe("");
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("");
 		expect(capture.stdout()).toBe("42\n");
-
-		const blockedResult = await proc.exec(`require("blocked-root")`, {
-			cwd: "/app",
-			filePath: "/app/index.js",
-		});
-		expect(blockedResult.code).toBe(1);
-		expect(blockedResult.stderr).toContain("Cannot find module");
 	});
 
 	it("loads dependency-of-dependency chains (A -> B -> C)", async () => {
@@ -168,7 +155,6 @@ describe("moduleAccess", () => {
 		const driver = createNodeDriver({
 			moduleAccess: {
 				cwd: projectDir,
-				allowPackages: ["pkg-a"],
 			},
 		});
 		const capture = createConsoleCapture();
@@ -181,6 +167,42 @@ describe("moduleAccess", () => {
 		expect(result.code).toBe(0);
 		expect(result.stdout).toBe("");
 		expect(capture.stdout()).toBe("42\n");
+	});
+
+	it("loads overlay packages when base filesystem is mounted elsewhere", async () => {
+		const projectDir = await createTempProject();
+		tempDirs.push(projectDir);
+
+		await writePackage(projectDir, "overlay-pkg", {
+			files: {
+				"index.js": "module.exports = { value: 41 };",
+			},
+		});
+
+		const baseFs = createInMemoryFileSystem();
+		await baseFs.writeFile("/workspace/host.txt", "host-file");
+
+		const driver = createNodeDriver({
+			filesystem: baseFs,
+			moduleAccess: {
+				cwd: projectDir,
+			},
+		});
+		const capture = createConsoleCapture();
+		proc = new NodeProcess({ driver, onConsoleLog: capture.onConsoleLog });
+
+		const result = await proc.exec(
+			`
+      const fs = require("fs");
+      const overlay = require("overlay-pkg");
+      const hostText = fs.readFileSync("/workspace/host.txt", "utf8");
+      console.log(String(overlay.value + 1) + ":" + hostText);
+    `,
+			{ cwd: "/app", filePath: "/app/index.js" },
+		);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("");
+		expect(capture.stdout()).toBe("42:host-file\n");
 	});
 
 	it("keeps projected node_modules read-only", async () => {
@@ -196,7 +218,6 @@ describe("moduleAccess", () => {
 		const driver = createNodeDriver({
 			moduleAccess: {
 				cwd: projectDir,
-				allowPackages: ["read-only-pkg"],
 			},
 		});
 		const capture = createConsoleCapture();
@@ -224,29 +245,12 @@ describe("moduleAccess", () => {
 			createNodeDriver({
 				moduleAccess: {
 					cwd: "relative/path",
-					allowPackages: ["allowed-root"],
 				},
 			}),
 		).toThrow(/ERR_MODULE_ACCESS_INVALID_CONFIG/);
-
-		expect(() =>
-			createNodeDriver({
-				moduleAccess: {
-					allowPackages: [],
-				},
-			}),
-		).toThrow(/ERR_MODULE_ACCESS_INVALID_CONFIG/);
-
-		expect(() =>
-			createNodeDriver({
-				moduleAccess: {
-					allowPackages: ["./not-a-package"],
-				},
-			}),
-		).toThrow(/ERR_MODULE_ACCESS_INVALID_PACKAGE/);
 	});
 
-	it("fails closed when resolved package path escapes cwd/node_modules", async () => {
+	it("fails closed when overlay path escapes cwd/node_modules", async () => {
 		const projectDir = await createTempProject();
 		tempDirs.push(projectDir);
 		const outsideDir = await mkdtemp(path.join(tmpdir(), "secure-exec-module-outside-"));
@@ -266,34 +270,91 @@ describe("moduleAccess", () => {
 		const escapeLink = path.join(projectDir, "node_modules", "escape-pkg");
 		await symlink(outsidePackageRoot, escapeLink, "dir");
 
-		expect(() =>
-			createNodeDriver({
-				moduleAccess: {
-					cwd: projectDir,
-					allowPackages: ["escape-pkg"],
-				},
-			}),
-		).toThrow(/ERR_MODULE_ACCESS_OUT_OF_SCOPE/);
+		const driver = createNodeDriver({
+			moduleAccess: {
+				cwd: projectDir,
+			},
+		});
+		proc = new NodeProcess({ driver });
+
+		const result = await proc.exec(`require("escape-pkg")`, {
+			cwd: "/app",
+			filePath: "/app/index.js",
+		});
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("ERR_MODULE_ACCESS_OUT_OF_SCOPE");
 	});
 
-	it("rejects native addon artifacts in discovered package closure", async () => {
+	it("rejects native addon artifacts in overlay", async () => {
 		const projectDir = await createTempProject();
 		tempDirs.push(projectDir);
 
 		await writePackage(projectDir, "native-addon-pkg", {
+			main: "binding.node",
 			files: {
 				"index.js": "module.exports = { ok: true };",
 				"binding.node": new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
 			},
 		});
 
-		expect(() =>
-			createNodeDriver({
-				moduleAccess: {
-					cwd: projectDir,
-					allowPackages: ["native-addon-pkg"],
-				},
-			}),
-		).toThrow(/ERR_MODULE_ACCESS_NATIVE_ADDON/);
+		const driver = createNodeDriver({
+			moduleAccess: {
+				cwd: projectDir,
+			},
+		});
+		proc = new NodeProcess({ driver });
+
+		const result = await proc.exec(`require("native-addon-pkg")`, {
+			cwd: "/app",
+			filePath: "/app/index.js",
+		});
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("ERR_MODULE_ACCESS_NATIVE_ADDON");
+	});
+
+	it("keeps non-overlay host paths denied when overlay reads are allowed", async () => {
+		const projectDir = await createTempProject();
+		tempDirs.push(projectDir);
+
+		await writePackage(projectDir, "overlay-only", {
+			files: {
+				"index.js": "module.exports = { value: 42 };",
+			},
+		});
+
+		const driver = createNodeDriver({
+			moduleAccess: {
+				cwd: projectDir,
+			},
+		});
+		const capture = createConsoleCapture();
+		proc = new NodeProcess({
+			driver,
+			permissions: {
+				fs: (request) => ({
+					allow: !request.path.startsWith("/etc/"),
+				}),
+			},
+			onConsoleLog: capture.onConsoleLog,
+		});
+
+		const result = await proc.exec(
+			`
+      const fs = require("fs");
+      const mod = require("overlay-only");
+      console.log(mod.value);
+      try {
+        fs.readFileSync("/etc/passwd", "utf8");
+        console.log("unexpected");
+      } catch (error) {
+        console.log(error && error.message);
+      }
+    `,
+			{ cwd: "/app", filePath: "/app/index.js" },
+		);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("");
+		expect(capture.stdout()).toContain("42\n");
+		expect(capture.stdout()).toContain("EACCES: permission denied");
 	});
 });

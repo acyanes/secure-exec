@@ -348,16 +348,19 @@ export function createDefaultNetworkAdapter(): NetworkAdapter {
 }
 
 export function createNodeDriver(options: NodeDriverOptions = {}): SandboxDriver {
-	const filesystem = options.moduleAccess
-		? new ModuleAccessFileSystem(options.filesystem, options.moduleAccess)
-		: options.filesystem;
-	const hasAdapter =
-		Boolean(filesystem) ||
+	const filesystem = new ModuleAccessFileSystem(
+		options.filesystem,
+		options.moduleAccess ?? {},
+	);
+	const hasExplicitAdapter =
+		Boolean(options.filesystem) ||
 		Boolean(options.networkAdapter) ||
 		Boolean(options.commandExecutor) ||
-		Boolean(options.useDefaultNetwork);
+		Boolean(options.useDefaultNetwork) ||
+		Boolean(options.moduleAccess);
 	// Set up permissive defaults for direct driver construction.
-	const permissions = options.permissions ?? (hasAdapter ? allowAll : undefined);
+	const permissions =
+		options.permissions ?? (hasExplicitAdapter ? allowAll : undefined);
 	const networkAdapter = options.networkAdapter
 		? options.networkAdapter
 		: options.useDefaultNetwork
