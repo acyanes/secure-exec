@@ -172,6 +172,9 @@ const DEFAULT_ISOLATE_JSON_PAYLOAD_BYTES = 4 * 1024 * 1024;
 const MIN_CONFIGURED_PAYLOAD_BYTES = 1024;
 const MAX_CONFIGURED_PAYLOAD_BYTES = 64 * 1024 * 1024;
 const PAYLOAD_LIMIT_ERROR_CODE = "ERR_SANDBOX_PAYLOAD_TOO_LARGE";
+const DEFAULT_SANDBOX_CWD = "/root";
+const DEFAULT_SANDBOX_HOME = "/root";
+const DEFAULT_SANDBOX_TMPDIR = "/tmp";
 
 class PayloadLimitError extends Error {
 	constructor(payloadLabel: string, maxBytes: number, actualBytes: number) {
@@ -228,10 +231,18 @@ export class NodeProcess {
 		this.networkAdapter = driver.network
 			? wrapNetworkAdapter(driver.network, permissions)
 			: createNetworkStub();
-		const processConfig = options.processConfig ?? {};
+		const processConfig = {
+			...(options.processConfig ?? {}),
+		};
+		processConfig.cwd ??= DEFAULT_SANDBOX_CWD;
 		processConfig.env = filterEnv(processConfig.env, permissions);
 		this.processConfig = processConfig;
-		this.osConfig = options.osConfig ?? {};
+		const osConfig = {
+			...(options.osConfig ?? {}),
+		};
+		osConfig.homedir ??= DEFAULT_SANDBOX_HOME;
+		osConfig.tmpdir ??= DEFAULT_SANDBOX_TMPDIR;
+		this.osConfig = osConfig;
 		this.cpuTimeLimitMs = options.cpuTimeLimitMs;
 		this.timingMitigation =
 			options.timingMitigation ?? DEFAULT_TIMING_MITIGATION;

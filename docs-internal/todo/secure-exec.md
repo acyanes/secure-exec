@@ -126,6 +126,10 @@
 - [ ] Add resolver memoization (positive + negative) to avoid repeated miss probes across `require()`/`import()`.
   - `packages/secure-exec/src/package-bundler.ts`, `packages/secure-exec/src/shared/require-setup.ts`, `packages/secure-exec/src/index.ts`
 
+- [ ] Document and verify package manager support for `node_modules` loading behavior.
+  - Cover expected resolver behavior and known caveats for npm, pnpm, yarn, and bun installs.
+  - Add/maintain compatibility fixtures that exercise transitive dependency loading across supported package manager layouts.
+
 - [ ] Cap and cache `package.json` parsing in resolver paths.
   - `packages/secure-exec/src/package-bundler.ts`
 

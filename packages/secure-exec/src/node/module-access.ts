@@ -17,7 +17,7 @@ const MODULE_ACCESS_INVALID_CONFIG = "ERR_MODULE_ACCESS_INVALID_CONFIG";
 const MODULE_ACCESS_OUT_OF_SCOPE = "ERR_MODULE_ACCESS_OUT_OF_SCOPE";
 const MODULE_ACCESS_NATIVE_ADDON = "ERR_MODULE_ACCESS_NATIVE_ADDON";
 
-const SANDBOX_APP_ROOT = "/app";
+const SANDBOX_APP_ROOT = "/root";
 const SANDBOX_NODE_MODULES_ROOT = `${SANDBOX_APP_ROOT}/node_modules`;
 
 const VIRTUAL_DIR_MODE = 0o040755;
@@ -80,9 +80,59 @@ function isNativeAddonPath(pathValue: string): boolean {
 	return pathValue.endsWith(".node");
 }
 
+function collectOverlayAllowedRoots(hostNodeModulesRoot: string): string[] {
+	const roots = new Set<string>([hostNodeModulesRoot]);
+	const symlinkScanRoots = [hostNodeModulesRoot, path.join(hostNodeModulesRoot, ".pnpm", "node_modules")];
+
+	const addSymlinkTarget = (entryPath: string): void => {
+		try {
+			const target = fsSync.realpathSync(entryPath);
+			roots.add(target);
+		} catch {
+			// Ignore broken symlinks.
+		}
+	};
+
+	const scanDirForSymlinks = (scanRoot: string): void => {
+		let entries: fsSync.Dirent[] = [];
+		try {
+			entries = fsSync.readdirSync(scanRoot, { withFileTypes: true });
+		} catch {
+			return;
+		}
+
+		for (const entry of entries) {
+			const entryPath = path.join(scanRoot, entry.name);
+			if (entry.isSymbolicLink()) {
+				addSymlinkTarget(entryPath);
+				continue;
+			}
+			if (entry.isDirectory() && entry.name.startsWith("@")) {
+				let scopedEntries: fsSync.Dirent[] = [];
+				try {
+					scopedEntries = fsSync.readdirSync(entryPath, { withFileTypes: true });
+				} catch {
+					continue;
+				}
+				for (const scopedEntry of scopedEntries) {
+					if (!scopedEntry.isSymbolicLink()) continue;
+					addSymlinkTarget(path.join(entryPath, scopedEntry.name));
+				}
+			}
+		}
+	};
+
+	for (const scanRoot of symlinkScanRoots) {
+		scanDirForSymlinks(scanRoot);
+	}
+
+	return [...roots];
+}
+
 export class ModuleAccessFileSystem implements VirtualFileSystem {
 	private readonly baseFileSystem?: VirtualFileSystem;
 	private readonly hostNodeModulesRoot: string | null;
+	private readonly overlayAllowedRoots: string[];
 
 	constructor(baseFileSystem: VirtualFileSystem | undefined, options: ModuleAccessOptions) {
 		this.baseFileSystem = baseFileSystem;
@@ -99,9 +149,15 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		const nodeModulesPath = path.join(cwd, "node_modules");
 		try {
 			this.hostNodeModulesRoot = fsSync.realpathSync(nodeModulesPath);
+			this.overlayAllowedRoots = collectOverlayAllowedRoots(this.hostNodeModulesRoot);
 		} catch {
 			this.hostNodeModulesRoot = null;
+			this.overlayAllowedRoots = [];
 		}
+	}
+
+	private isWithinAllowedOverlayRoots(canonicalPath: string): boolean {
+		return this.overlayAllowedRoots.some((root) => isWithinPath(canonicalPath, root));
 	}
 
 	private isSyntheticPath(virtualPath: string): boolean {
@@ -174,10 +230,13 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 
 		try {
 			const canonical = await fs.realpath(hostPath);
-			if (!this.hostNodeModulesRoot || !isWithinPath(canonical, this.hostNodeModulesRoot)) {
+			if (
+				!this.hostNodeModulesRoot ||
+				!this.isWithinAllowedOverlayRoots(canonical)
+			) {
 				throw createModuleAccessError(
 					MODULE_ACCESS_OUT_OF_SCOPE,
-					`resolved path '${canonical}' escapes '${this.hostNodeModulesRoot}'`,
+					`resolved path '${canonical}' escapes overlay roots rooted at '${this.hostNodeModulesRoot}'`,
 				);
 			}
 			if (isNativeAddonPath(canonical)) {

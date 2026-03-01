@@ -38,6 +38,7 @@ Follow the style in `packages/secure-exec/src/index.ts`.
 - explain intent/why, not obvious mechanics
 - keep comments concise and consistent (`Set up`, `Transform`, `Wait for`, `Get`)
 - comment tricky ordering/invariants; skip noise
+- add inline comments and doc comments when behavior is non-obvious, especially where runtime/bridge/driver pieces depend on each other
 
 ## Skills
 

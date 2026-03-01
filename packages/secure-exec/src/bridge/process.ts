@@ -62,7 +62,7 @@ const config = {
   version:
     (typeof _processConfig !== "undefined" && _processConfig.version) ||
     "v22.0.0",
-  cwd: (typeof _processConfig !== "undefined" && _processConfig.cwd) || "/",
+  cwd: (typeof _processConfig !== "undefined" && _processConfig.cwd) || "/root",
   env: (typeof _processConfig !== "undefined" && _processConfig.env) || {},
   argv:
     (typeof _processConfig !== "undefined" && _processConfig.argv) || [

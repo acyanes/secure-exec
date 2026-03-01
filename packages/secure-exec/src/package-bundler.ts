@@ -218,6 +218,9 @@ function getNodeModulesCandidatePackageDirs(
 ): string[] {
 	const candidates = new Set<string>();
 	candidates.add(join(dir, "node_modules", packageName));
+	candidates.add(
+		join(dir, "node_modules", ".pnpm", "node_modules", packageName),
+	);
 
 	// Match Node's "parent node_modules" lookup when the current directory is
 	// already a node_modules folder.
