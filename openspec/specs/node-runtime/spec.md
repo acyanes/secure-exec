@@ -289,34 +289,12 @@ The runtime SHALL publish its execution interface from the `secure-exec` package
 - **WHEN** contributors update runtime implementation files
 - **THEN** those files MUST live under `packages/secure-exec` rather than the legacy runtime package path
 
-### Requirement: Allowed Host Node-Modules Projection MUST Be Explicit and Scoped
-The Node runtime SHALL support driver-configured module access that projects only explicitly allowlisted package roots from host installs, and every projected module artifact MUST resolve from paths contained within `<moduleAccess.cwd>/node_modules`.
-
-#### Scenario: Allowlisted package resolves from projected sandbox node_modules
-- **WHEN** a driver is configured with `moduleAccess.cwd` and `moduleAccess.allowPackages` including `"zod"`
-- **THEN** sandboxed code importing or requiring `"zod"` MUST resolve via projected `/app/node_modules` content and execute without host-global fallback
-
-#### Scenario: Resolved package path escapes configured node_modules boundary
-- **WHEN** host-side module discovery resolves a package artifact whose canonical path is outside `<moduleAccess.cwd>/node_modules`
-- **THEN** projection MUST fail with a deterministic out-of-scope module-access error and MUST NOT expose that artifact to the sandbox
-
-### Requirement: Projected Module Closure MUST Include Runtime Dependencies
-For each allowlisted package root, projection SHALL include transitive runtime dependency closure required for Node-compatible module resolution in sandbox execution.
-
-#### Scenario: Allowlisted package requires transitive dependency
-- **WHEN** allowlisted package `A` requires package `B` at runtime and `B` is installed under the scoped host node_modules tree
-- **THEN** projection MUST include package `B` so sandbox execution of `A` does not fail due to missing transitive dependency
-
-#### Scenario: Non-allowlisted package remains unavailable
-- **WHEN** sandboxed code requires package `X` that is not in any allowlisted package closure
-- **THEN** runtime module resolution MUST fail with module-not-found behavior
-
 ### Requirement: Projected Modules MUST Exclude Native Addons
-Module projection SHALL reject native addon artifacts (`.node`) so projected dependency execution remains within supported sandbox module formats.
+Module projection and overlay-based loading SHALL reject native addon artifacts (`.node`) so projected dependency execution remains within supported sandbox module formats.
 
-#### Scenario: Allowlisted dependency includes native addon file
-- **WHEN** projection encounters a `.node` artifact in an allowlisted package closure
-- **THEN** projection MUST fail deterministically and MUST NOT make that native addon loadable in sandbox runtime
+#### Scenario: Overlay dependency attempts to load native addon file
+- **WHEN** sandboxed code or package runtime behavior attempts to load a `.node` artifact from `/app/node_modules`
+- **THEN** runtime MUST fail deterministically and MUST NOT execute native addon code
 
 ### Requirement: Isolate-Executed Bootstrap Sources MUST Be Static TypeScript Modules
 Any source code evaluated inside the isolate for runtime/bootstrap setup MUST originate from static files under `packages/secure-exec/isolate-runtime/src/` and MUST be tracked as normal TypeScript source with inject entrypoints rooted in `packages/secure-exec/isolate-runtime/src/inject/`.
@@ -383,3 +361,30 @@ The Node runtime SHALL expose an optional host hook for streaming console log ev
 #### Scenario: Hook-enabled runtime still avoids buffered accumulation
 - **WHEN** high-volume logging is emitted with a configured hook
 - **THEN** secure-exec runtime MUST stream events to the hook without accumulating unbounded per-execution log buffers in host memory
+
+### Requirement: Always-On CWD Node-Modules Overlay MUST Be Scoped and Read-Only
+The Node runtime SHALL always expose `/app/node_modules` as a read-only overlay sourced from `<overlay.cwd>/node_modules` (default `<overlay.cwd> = process.cwd()`), independent of whether a base `VirtualFileSystem` is mounted.
+
+#### Scenario: Overlay is available without base filesystem adapter
+- **WHEN** a caller creates `NodeProcess` without a base filesystem adapter and host `<overlay.cwd>/node_modules` contains package `left-pad`
+- **THEN** sandboxed code requiring `left-pad` from `/app` MUST resolve through `/app/node_modules` overlay content
+
+#### Scenario: Overlay remains available when base filesystem mount differs
+- **WHEN** a caller mounts a base filesystem rooted outside `/app` and host `<overlay.cwd>/node_modules` contains package `zod`
+- **THEN** sandboxed code requiring `zod` from `/app` MUST resolve via `/app/node_modules` overlay without requiring base filesystem remounting
+
+#### Scenario: Overlay path escaping configured node_modules root is rejected
+- **WHEN** an overlay-backed read resolves to a canonical host path outside canonical `<overlay.cwd>/node_modules`
+- **THEN** runtime MUST fail with a deterministic out-of-scope error and MUST NOT expose the escaped path to sandbox execution
+
+### Requirement: Runtime Module Resolution MUST Use Unified Filesystem Access
+Node runtime import and require resolution SHALL use one shared runtime filesystem interface and MUST NOT branch into a separate "filesystem unavailable" module-loading path when the overlay-backed driver is active.
+
+#### Scenario: Bare package import resolves through shared runtime filesystem
+- **WHEN** sandboxed code executes `require("lodash")` with overlay-enabled runtime filesystem
+- **THEN** the resolver MUST perform package resolution through the shared runtime filesystem interface rather than a separate host-resolution fallback path
+
+#### Scenario: ESM dynamic import resolves through shared runtime filesystem
+- **WHEN** sandboxed code executes `await import("zod")` with overlay-enabled runtime filesystem
+- **THEN** dynamic import resolution and module loading MUST use the same shared runtime filesystem interface used by CommonJS resolution
+
