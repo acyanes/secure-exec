@@ -76,6 +76,9 @@ importers:
       node-stdlib-browser:
         specifier: ^1.3.1
         version: 1.3.1
+      pyodide:
+        specifier: ^0.28.3
+        version: 0.28.3
       sucrase:
         specifier: ^3.35.0
         version: 3.35.1
@@ -2542,6 +2545,16 @@ packages:
 
   /pyodide@0.27.7:
     resolution: {integrity: sha512-RUSVJlhQdfWfgO9hVHCiXoG+nVZQRS5D9FzgpLJ/VcgGBLSAKoPL8kTiOikxbHQm1kRISeWUBdulEgO26qpSRA==}
+    engines: {node: '>=18.0.0'}
+    dependencies:
+      ws: 8.19.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+    dev: false
+
+  /pyodide@0.28.3:
+    resolution: {integrity: sha512-rtCsyTU55oNGpLzSVuAd55ZvruJDEX8o6keSdWKN9jPeBVSNlynaKFG7eRqkiIgU7i2M6HEgYtm0atCEQX3u4A==}
     engines: {node: '>=18.0.0'}
     dependencies:
       ws: 8.19.0

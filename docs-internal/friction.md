@@ -1,5 +1,16 @@
 # Sandboxed Node Friction Log
 
+## 2026-03-03
+
+1. **[resolved]** Python runtime contract split needed explicit cross-runtime `exec()` parity and warm-state guardrails.
+   - Symptom: introducing Python execution risked mixing Node-only runtime-driver contracts into Python APIs and drifting `exec()` timeout/error semantics across runtimes.
+   - Fix: split runtime-driver interfaces into Node/Python contracts, added `PythonRuntime` + `PyodideRuntimeDriver`, and enforced a shared host-facing `exec()` result contract.
+   - Compatibility trade-off: `PythonRuntime` instances are intentionally warm/shared per instance; callers needing fresh interpreter state must create/terminate runtime instances explicitly.
+2. **[resolved]** Python package installation/loading pathways were intentionally out-of-scope for the first Python runtime increment.
+   - Symptom: enabling package installation in the same change as the core runtime-driver split would widen attack surface and blur permission policy scope.
+   - Fix: Python package install/load pathways now fail deterministically with `ERR_PYTHON_PACKAGE_INSTALL_UNSUPPORTED`.
+   - Follow-up: define explicit package governance and permission policy before enabling runtime package install/load capabilities.
+
 ## 2026-03-02
 
 1. **[resolved]** Browser runtime execution was intentionally disabled during runtime-driver boundary refactor.
@@ -41,7 +52,7 @@
 
 2. **[resolved]** Bridge/global type contracts drifted across host wiring, bridge modules, and isolate-runtime declarations.
    - Symptom: host injection keys, bridge global declarations, and isolate-runtime global types were defined ad hoc in multiple files, leaving boundary typing inconsistent and prone to regressions.
-   - Fix: added canonical shared bridge contract definitions in `packages/secure-exec/src/shared/bridge-contract.ts`, migrated bridge modules and `src/index.ts` wiring to shared keys/types, coupled isolate-runtime declarations to shared types via type-only imports, and added `packages/secure-exec/tests/bridge-contract.test.ts` to enforce key/type registry consistency.
+   - Fix: added canonical shared bridge contract definitions in `packages/secure-exec/src/shared/bridge-contract.ts`, migrated bridge modules and `src/index.ts` wiring to shared keys/types, coupled isolate-runtime declarations to shared types via type-only imports, and added `packages/secure-exec/tests/bridge-registry-policy.test.ts` to enforce key/type registry consistency.
 
 ## 2026-02-27
 

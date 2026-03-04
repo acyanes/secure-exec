@@ -5,6 +5,7 @@ import {
 	createNodeRuntimeDriverFactory,
 } from "../../src/index.js";
 import type { NodeRuntimeOptions } from "../../src/index.js";
+import type { NodeRuntimeDriverFactory } from "../../src/types.js";
 
 type RuntimeOptions = Omit<NodeRuntimeOptions, "systemDriver" | "runtimeDriverFactory">;
 
@@ -35,7 +36,9 @@ describe("runtime driver specific: node", () => {
 	});
 
 	it("accepts Node-only runtime construction options", async () => {
-		const runtime = createRuntime({
+		const runtimeDriverFactory: NodeRuntimeDriverFactory =
+			createNodeRuntimeDriverFactory();
+		const runtime = new NodeRuntime({
 			memoryLimit: 128,
 			cpuTimeLimitMs: 250,
 			timingMitigation: "off",
@@ -43,6 +46,8 @@ describe("runtime driver specific: node", () => {
 				base64TransferBytes: 4096,
 				jsonPayloadBytes: 4096,
 			},
+			systemDriver: createNodeDriver({}),
+			runtimeDriverFactory,
 		});
 
 		const result = await runtime.exec(`console.log("node-runtime-options-ok");`);

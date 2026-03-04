@@ -1,14 +1,21 @@
 // Re-export core runtime surface.
 export { NodeRuntime } from "./runtime.js";
 export type { NodeRuntimeOptions } from "./runtime.js";
+export { PythonRuntime } from "./python-runtime.js";
+export type { PythonRuntimeOptions } from "./python-runtime.js";
 
 // Re-export public types.
 export type {
 	CommandExecutor,
+	NodeRuntimeDriver,
+	NodeRuntimeDriverFactory,
 	NetworkAdapter,
 	Permissions,
+	PythonRuntimeDriver,
+	PythonRuntimeDriverFactory,
 	RuntimeDriver,
 	RuntimeDriverFactory,
+	SharedRuntimeDriver,
 	SystemDriver,
 	VirtualFileSystem,
 } from "./types.js";
@@ -20,6 +27,7 @@ export type {
 	ExecOptions,
 	ExecResult,
 	OSConfig,
+	PythonRunResult,
 	ProcessConfig,
 	RunResult,
 	TimingMitigation,
@@ -37,6 +45,12 @@ export type {
 	ModuleAccessOptions,
 	NodeRuntimeDriverFactoryOptions,
 } from "./node/driver.js";
+
+// Re-export Python runtime-driver factories.
+export {
+	createPyodideRuntimeDriverFactory,
+	PyodideRuntimeDriver,
+} from "./python/driver.js";
 
 // Re-export browser driver factories.
 export {

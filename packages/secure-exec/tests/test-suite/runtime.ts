@@ -1,21 +1,37 @@
 import { afterEach, expect, it } from "vitest";
-import type {
-	NodeRuntime,
-	NodeRuntimeOptions,
-} from "../../src/index.js";
+import type { NodeRuntimeOptions } from "../../src/browser-runtime.js";
 
-export type DriverName = "node" | "browser";
-
-export type DriverPair = {
-	execDriver: DriverName;
-	runtimeDriver: DriverName;
-};
+export type RuntimeTarget = "node" | "browser";
 
 type RuntimeOptions = Omit<NodeRuntimeOptions, "systemDriver" | "runtimeDriverFactory">;
 
+type RuntimeLike = {
+	exec: (code: string) => Promise<{ code: number; errorMessage?: string }>;
+	run: (code: string, filename?: string) => Promise<{
+		code: number;
+		errorMessage?: string;
+		exports?: unknown;
+	}>;
+	network: {
+		fetch: (
+			url: string,
+			init?: { method?: string; headers?: Record<string, string>; body?: string },
+		) => Promise<{ ok: boolean; body: string }>;
+		dnsLookup: (
+			hostname: string,
+			family?: 4 | 6,
+		) => Promise<
+			| { address: string; family: 4 | 6 }
+			| { error: string; code?: string; errno?: number }
+		>;
+	};
+	dispose: () => void;
+	terminate: () => Promise<void>;
+};
+
 export type SharedSuiteContext = {
-	pair: DriverPair;
-	createRuntime(options?: RuntimeOptions): Promise<NodeRuntime>;
+	target: RuntimeTarget;
+	createRuntime(options?: RuntimeOptions): Promise<RuntimeLike>;
 	teardown(): Promise<void>;
 };
 
@@ -36,12 +52,12 @@ export function runRuntimeSuite(context: SharedSuiteContext): void {
 	it("returns CommonJS exports from run()", async () => {
 		const runtime = await context.createRuntime();
 		const result = await runtime.run(
-			`module.exports = { ok: true, runtimeDriver: "${context.pair.runtimeDriver}" };`,
+			`module.exports = { ok: true, runtimeDriver: "${context.target}" };`,
 		);
 		expect(result.code).toBe(0);
 		expect(result.exports).toEqual({
 			ok: true,
-			runtimeDriver: context.pair.runtimeDriver,
+			runtimeDriver: context.target,
 		});
 	});
 

@@ -236,8 +236,13 @@ export interface Permissions {
 
 export type {
 	DriverRuntimeConfig,
+	NodeRuntimeDriver,
+	NodeRuntimeDriverFactory,
+	PythonRuntimeDriver,
+	PythonRuntimeDriverFactory,
 	RuntimeDriver,
 	RuntimeDriverFactory,
 	RuntimeDriverOptions,
+	SharedRuntimeDriver,
 	SystemDriver,
 } from "./runtime-driver.js";

@@ -451,14 +451,16 @@ async function runOverlaySandboxExecution(
 		},
 		permissions: fixturePermissions,
 	});
-	const sandboxEntry = `/app/${entryRelativePath.replace(/\\/g, "/").replace(/^\/+/, "")}`;
+	const sandboxEntry = `/root/${entryRelativePath
+		.replace(/\\/g, "/")
+		.replace(/^\/+/, "")}`;
 	const proc = createTestNodeRuntime({
 		driver,
 		onStdio: (event) => {
 			capturedEvents.push(event);
 		},
 		processConfig: {
-			cwd: "/app",
+			cwd: "/root",
 			env: {},
 		},
 	});
@@ -466,7 +468,7 @@ async function runOverlaySandboxExecution(
 	try {
 		const result = await proc.exec(entryCode, {
 			filePath: sandboxEntry,
-			cwd: "/app",
+			cwd: "/root",
 			env: {},
 		});
 		return normalizeEnvelope(

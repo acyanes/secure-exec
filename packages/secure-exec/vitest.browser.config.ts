@@ -10,7 +10,6 @@ export default defineConfig({
 		testTimeout: 15000,
 		include: [
 			"tests/test-suite.test.ts",
-			"tests/exec-driver/browser.test.ts",
 			"tests/runtime-driver/browser.test.ts",
 		],
 		browser: {

@@ -10,7 +10,7 @@ function readSource(relativePath: string): string {
 	return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
 }
 
-describe("bridge contract registry", () => {
+describe("bridge registry policy", () => {
 	it("keeps canonical bridge key lists represented in custom-global inventory", () => {
 		const inventoryNames = new Set(
 			NODE_CUSTOM_GLOBAL_INVENTORY.map((entry) => entry.name),
@@ -24,7 +24,7 @@ describe("bridge contract registry", () => {
 	});
 
 	it("uses shared host bridge key constants for jail wiring", () => {
-		const source = readSource("src/index.ts");
+		const source = readSource("src/node/execution-driver.ts");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.dynamicImport");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.networkFetchRaw");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.childProcessSpawnStart");

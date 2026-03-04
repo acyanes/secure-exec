@@ -1,23 +1,24 @@
 # Architecture Overview
 
 ```
-NodeRuntime
-  → SystemDriver + RuntimeDriverFactory
-  → NodeExecutionDriver (node target) | BrowserRuntimeDriver + Worker runtime (browser target)
+NodeRuntime | PythonRuntime
+  → SystemDriver + NodeRuntimeDriverFactory | PythonRuntimeDriverFactory
+  → NodeExecutionDriver (node target) | BrowserRuntimeDriver + Worker runtime (browser target) | PyodideRuntimeDriver + Worker runtime (python target)
 ```
 
-## NodeRuntime
+## NodeRuntime / PythonRuntime
 
-`src/index.ts`
+`src/runtime.ts`, `src/python-runtime.ts`
 
-Public API. Thin facade that delegates orchestration to a runtime driver.
+Public APIs. Thin facades that delegate orchestration to runtime drivers.
 
-- `run(code)` — execute as module, get exports back
+- `NodeRuntime.run(code)` — execute JS module, get exports back
+- `PythonRuntime.run(code)` — execute Python and return structured value/global wrapper
 - `exec(code)` — execute as script, get exit code/error contract
 - `dispose()` / `terminate()`
 - Requires both:
   - `systemDriver` for runtime capabilities/config
-  - `runtimeDriverFactory` for runtime-driver construction
+  - runtime-driver factory for runtime-driver construction
 
 ## SystemDriver
 
@@ -30,7 +31,7 @@ Config object that bundles what the sandbox can access. Deny-by-default.
 - `commandExecutor` — child processes
 - `permissions` — per-adapter allow/deny checks
 
-## RuntimeDriverFactory
+## NodeRuntimeDriverFactory / PythonRuntimeDriverFactory
 
 Factory abstraction for constructing runtime drivers from normalized runtime options.
 
@@ -74,6 +75,15 @@ Factory that builds a browser-backed `RuntimeDriverFactory`.
 - Constructs `BrowserRuntimeDriver` instances
 - Owns worker URL/runtime-driver creation options
 
+### createPyodideRuntimeDriverFactory()
+
+`src/python/driver.ts`
+
+Factory that builds a Python-backed `PythonRuntimeDriverFactory`.
+
+- Constructs `PyodideRuntimeDriver` instances
+- Owns Pyodide worker bootstrap and runtime-driver creation options
+
 ## NodeExecutionDriver
 
 `src/node/execution-driver.ts`
@@ -106,6 +116,18 @@ Worker-side runtime implementation used by the browser runtime driver.
 - Executes transformed CJS/ESM user code and returns runtime-contract results
 - Uses permission-aware filesystem/network adapters in the worker context
 - Preserves deterministic unsupported-operation contracts (for example DNS gaps)
+
+## PyodideRuntimeDriver
+
+`src/python/driver.ts`
+
+Python execution driver that owns a Node worker running Pyodide.
+
+- Loads Pyodide once per runtime instance and keeps interpreter state warm across runs
+- Dispatches `run`/`exec` requests and correlates responses by request ID
+- Streams stdio events to host hooks without runtime-managed output buffering
+- Uses worker-to-host RPC for permission-wrapped filesystem/network access through `SystemDriver`
+- Restarts worker state on execution timeout to preserve deterministic recovery behavior
 
 ## ModuleAccessFileSystem
 

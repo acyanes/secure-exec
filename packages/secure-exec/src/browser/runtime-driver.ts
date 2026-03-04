@@ -1,8 +1,8 @@
 import { createNetworkStub } from "../shared/permissions.js";
 import type {
 	NetworkAdapter,
-	RuntimeDriver,
-	RuntimeDriverFactory,
+	NodeRuntimeDriver,
+	NodeRuntimeDriverFactory,
 	RuntimeDriverOptions,
 } from "../types.js";
 import type {
@@ -127,7 +127,7 @@ function validateBrowserExecOptions(options?: ExecOptions): void {
 	);
 }
 
-export class BrowserRuntimeDriver implements RuntimeDriver {
+export class BrowserRuntimeDriver implements NodeRuntimeDriver {
 	private readonly worker: Worker;
 	private readonly pending = new Map<number, PendingRequest>();
 	private readonly defaultOnStdio?: StdioHook;
@@ -295,7 +295,7 @@ export class BrowserRuntimeDriver implements RuntimeDriver {
 
 export function createBrowserRuntimeDriverFactory(
 	factoryOptions: BrowserRuntimeDriverFactoryOptions = {},
-): RuntimeDriverFactory {
+): NodeRuntimeDriverFactory {
 	return {
 		createRuntimeDriver(options) {
 			validateBrowserRuntimeOptions(options);

@@ -17,8 +17,8 @@ import type {
 import type {
 	CommandExecutor,
 	NetworkAdapter,
+	NodeRuntimeDriverFactory,
 	Permissions,
-	RuntimeDriverFactory,
 	SystemDriver,
 	VirtualFileSystem,
 } from "../types.js";
@@ -401,7 +401,7 @@ export function createNodeDriver(options: NodeDriverOptions = {}): SystemDriver 
 
 export function createNodeRuntimeDriverFactory(
 	options: NodeRuntimeDriverFactoryOptions = {},
-): RuntimeDriverFactory {
+): NodeRuntimeDriverFactory {
 	return {
 		createRuntimeDriver: (runtimeOptions) =>
 			new NodeExecutionDriver({

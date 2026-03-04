@@ -3,6 +3,7 @@ import type {
 	ExecOptions,
 	ExecResult,
 	OSConfig,
+	PythonRunResult,
 	ProcessConfig,
 	RunResult,
 	TimingMitigation,
@@ -32,11 +33,14 @@ export interface RuntimeDriverOptions {
 	};
 }
 
-export interface RuntimeDriver {
-	run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>>;
+export interface SharedRuntimeDriver {
 	exec(code: string, options?: ExecOptions): Promise<ExecResult>;
 	dispose(): void;
 	terminate?(): Promise<void>;
+}
+
+export interface NodeRuntimeDriver extends SharedRuntimeDriver {
+	run<T = unknown>(code: string, filePath?: string): Promise<RunResult<T>>;
 	readonly network?: Pick<NetworkAdapter, "fetch" | "dnsLookup" | "httpRequest">;
 	unsafeIsolate?: unknown;
 	createUnsafeContext?(options?: {
@@ -46,8 +50,22 @@ export interface RuntimeDriver {
 	}): Promise<unknown>;
 }
 
-export interface RuntimeDriverFactory {
-	createRuntimeDriver(options: RuntimeDriverOptions): RuntimeDriver;
+export interface PythonRuntimeDriver extends SharedRuntimeDriver {
+	run<T = unknown>(
+		code: string,
+		options?: {
+			filePath?: string;
+			globals?: string[];
+		},
+	): Promise<PythonRunResult<T>>;
+}
+
+export interface NodeRuntimeDriverFactory {
+	createRuntimeDriver(options: RuntimeDriverOptions): NodeRuntimeDriver;
+}
+
+export interface PythonRuntimeDriverFactory {
+	createRuntimeDriver(options: RuntimeDriverOptions): PythonRuntimeDriver;
 }
 
 export interface SystemDriver {
@@ -57,3 +75,7 @@ export interface SystemDriver {
 	permissions?: Permissions;
 	runtime: DriverRuntimeConfig;
 }
+
+// Backward-compatible aliases for existing runtime-driver call sites.
+export type RuntimeDriver = NodeRuntimeDriver;
+export type RuntimeDriverFactory = NodeRuntimeDriverFactory;

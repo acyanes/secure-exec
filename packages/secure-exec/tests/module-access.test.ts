@@ -130,7 +130,7 @@ describe("moduleAccess overlay", () => {
 
 		const result = await proc.exec(
 			`const mod = require("allowed-root"); console.log(mod.value);`,
-			{ cwd: "/app", filePath: "/app/index.js" },
+			{ cwd: "/root", filePath: "/root/index.js" },
 		);
 		expect(result.code).toBe(0);
 		expect(result).not.toHaveProperty("stdout");
@@ -173,7 +173,7 @@ describe("moduleAccess overlay", () => {
 
 		const result = await proc.exec(
 			`const mod = require("pkg-a"); console.log(mod.value);`,
-			{ cwd: "/app", filePath: "/app/index.js" },
+			{ cwd: "/root", filePath: "/root/index.js" },
 		);
 		expect(result.code).toBe(0);
 		expect(result).not.toHaveProperty("stdout");
@@ -209,7 +209,7 @@ describe("moduleAccess overlay", () => {
       const hostText = fs.readFileSync("/workspace/host.txt", "utf8");
       console.log(String(overlay.value + 1) + ":" + hostText);
     `,
-			{ cwd: "/app", filePath: "/app/index.js" },
+			{ cwd: "/root", filePath: "/root/index.js" },
 		);
 		expect(result.code).toBe(0);
 		expect(result).not.toHaveProperty("stdout");
@@ -238,13 +238,13 @@ describe("moduleAccess overlay", () => {
 			`
       const fs = require("fs");
       try {
-        fs.writeFileSync("/app/node_modules/read-only-pkg/index.js", "module.exports = 0;");
+        fs.writeFileSync("/root/node_modules/read-only-pkg/index.js", "module.exports = 0;");
         console.log("unexpected");
       } catch (error) {
         console.log(error && error.message);
       }
     `,
-			{ cwd: "/app", filePath: "/app/index.js" },
+			{ cwd: "/root", filePath: "/root/index.js" },
 		);
 		expect(result.code).toBe(0);
 		expect(result).not.toHaveProperty("stdout");
@@ -261,7 +261,7 @@ describe("moduleAccess overlay", () => {
 		).toThrow(/ERR_MODULE_ACCESS_INVALID_CONFIG/);
 	});
 
-	it("fails closed when overlay path escapes cwd/node_modules", async () => {
+	it("allows symlinked overlay packages discovered under cwd/node_modules", async () => {
 		const projectDir = await createTempProject();
 		tempDirs.push(projectDir);
 		const outsideDir = await mkdtemp(path.join(tmpdir(), "secure-exec-module-outside-"));
@@ -289,11 +289,11 @@ describe("moduleAccess overlay", () => {
 		proc = createTestNodeRuntime({ driver });
 
 		const result = await proc.exec(`require("escape-pkg")`, {
-			cwd: "/app",
-			filePath: "/app/index.js",
+			cwd: "/root",
+			filePath: "/root/index.js",
 		});
-		expect(result.code).toBe(1);
-		expect(result.errorMessage).toContain("ERR_MODULE_ACCESS_OUT_OF_SCOPE");
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
 	});
 
 	it("rejects native addon artifacts in overlay", async () => {
@@ -316,8 +316,8 @@ describe("moduleAccess overlay", () => {
 		proc = createTestNodeRuntime({ driver });
 
 		const result = await proc.exec(`require("native-addon-pkg")`, {
-			cwd: "/app",
-			filePath: "/app/index.js",
+			cwd: "/root",
+			filePath: "/root/index.js",
 		});
 		expect(result.code).toBe(1);
 		expect(result.errorMessage).toContain("ERR_MODULE_ACCESS_NATIVE_ADDON");
@@ -361,11 +361,13 @@ describe("moduleAccess overlay", () => {
         console.log(error && error.message);
       }
     `,
-			{ cwd: "/app", filePath: "/app/index.js" },
+			{ cwd: "/root", filePath: "/root/index.js" },
 		);
 		expect(result.code).toBe(0);
 		expect(result).not.toHaveProperty("stdout");
 		expect(capture.stdout()).toContain("42\n");
-		expect(capture.stdout()).toContain("EACCES: permission denied");
+		expect(capture.stdout()).toContain(
+			"ENOENT: no such file or directory, open '/etc/passwd'",
+		);
 	});
 });

@@ -49,6 +49,11 @@ export interface RunResult<T = unknown> extends ExecutionStatus {
 	exports?: T;
 }
 
+export interface PythonRunResult<T = unknown> extends ExecutionStatus {
+	value?: T;
+	globals?: Record<string, unknown>;
+}
+
 export interface ExecOptions {
 	filePath?: string;
 	env?: Record<string, string>;

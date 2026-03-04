@@ -6,34 +6,24 @@ import {
 	createBrowserRuntimeDriverFactory,
 } from "../src/browser-runtime.js";
 import type { NodeRuntimeOptions } from "../src/browser-runtime.js";
+import { runRuntimeNetworkSuite } from "./test-suite/network.js";
 import {
 	runRuntimeSuite,
-	type DriverName,
-	type DriverPair,
+	type RuntimeTarget,
 	type SharedSuiteContext,
 } from "./test-suite/runtime.js";
 
 type RuntimeOptions = Omit<NodeRuntimeOptions, "systemDriver" | "runtimeDriverFactory">;
 type SharedSuite = (context: SharedSuiteContext) => void;
 
-const EXEC_DRIVERS: DriverName[] = ["node", "browser"];
-const RUNTIME_DRIVERS: DriverName[] = ["node", "browser"];
+type DisposableRuntime = {
+	dispose(): void;
+	terminate(): Promise<void>;
+};
 
-const DRIVER_MATRIX: DriverPair[] = EXEC_DRIVERS.flatMap((execDriver) =>
-	RUNTIME_DRIVERS.map((runtimeDriver) => ({ execDriver, runtimeDriver })),
-);
-
-const COMPATIBLE_PAIRS = new Set<string>(["node:node", "browser:browser"]);
-
-const SHARED_SUITES: SharedSuite[] = [runRuntimeSuite];
-
-function pairKey(pair: DriverPair): string {
-	return `${pair.execDriver}:${pair.runtimeDriver}`;
-}
-
-function isCompatiblePair(pair: DriverPair): boolean {
-	return COMPATIBLE_PAIRS.has(pairKey(pair));
-}
+const RUNTIME_TARGETS: RuntimeTarget[] = ["node", "browser"];
+const SHARED_SUITES: SharedSuite[] = [runRuntimeSuite, runRuntimeNetworkSuite];
+const NODE_ENTRYPOINT = "../src/index.js";
 
 function isNodeTargetAvailable(): boolean {
 	return typeof process !== "undefined" && Boolean(process.versions?.node);
@@ -43,54 +33,53 @@ function isBrowserTargetAvailable(): boolean {
 	return typeof window !== "undefined" && typeof Worker !== "undefined";
 }
 
-function isAvailablePair(pair: DriverPair): boolean {
-	if (pair.execDriver === "node" && pair.runtimeDriver === "node") {
+function isTargetAvailable(target: RuntimeTarget): boolean {
+	if (target === "node") {
 		return isNodeTargetAvailable();
 	}
-	if (pair.execDriver === "browser" && pair.runtimeDriver === "browser") {
-		return isBrowserTargetAvailable();
-	}
-	return false;
+	return isBrowserTargetAvailable();
 }
 
-function createSuiteContext(pair: DriverPair): SharedSuiteContext {
-	const runtimes = new Set<NodeRuntime>();
+async function importNodeEntrypoint() {
+	return import(/* @vite-ignore */ NODE_ENTRYPOINT);
+}
+
+function createSuiteContext(target: RuntimeTarget): SharedSuiteContext {
+	const runtimes = new Set<DisposableRuntime>();
 
 	return {
-		pair,
-		async createRuntime(options: RuntimeOptions = {}): Promise<NodeRuntime> {
-			let runtime: NodeRuntime;
-
-			if (pair.execDriver === "node" && pair.runtimeDriver === "node") {
+		target,
+		async createRuntime(options: RuntimeOptions = {}) {
+			if (target === "node") {
 				const {
+					NodeRuntime: NodeRuntimeClass,
 					createNodeDriver,
 					createNodeRuntimeDriverFactory,
-				} = await import("../src/index.js");
-				runtime = new NodeRuntime({
+				} = await importNodeEntrypoint();
+				const runtime = new NodeRuntimeClass({
 					...options,
-					systemDriver: createNodeDriver({}),
+					systemDriver: createNodeDriver({
+						useDefaultNetwork: true,
+						permissions: allowAllNetwork,
+					}),
 					runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 				});
-			} else if (
-				pair.execDriver === "browser" &&
-				pair.runtimeDriver === "browser"
-			) {
-				const systemDriver = await createBrowserDriver({
-					filesystem: "memory",
-					useDefaultNetwork: true,
-					permissions: allowAllNetwork,
-				});
-				runtime = new NodeRuntime({
-					...options,
-					systemDriver,
-					runtimeDriverFactory: createBrowserRuntimeDriverFactory({
-						workerUrl: new URL("../src/browser/worker.ts", import.meta.url),
-					}),
-				});
-			} else {
-				throw new Error(`Unsupported driver pair: ${pairKey(pair)}`);
+				runtimes.add(runtime);
+				return runtime;
 			}
 
+			const systemDriver = await createBrowserDriver({
+				filesystem: "memory",
+				useDefaultNetwork: true,
+				permissions: allowAllNetwork,
+			});
+			const runtime = new NodeRuntime({
+				...options,
+				systemDriver,
+				runtimeDriverFactory: createBrowserRuntimeDriverFactory({
+					workerUrl: new URL("../src/browser/worker.ts", import.meta.url),
+				}),
+			});
 			runtimes.add(runtime);
 			return runtime;
 		},
@@ -110,18 +99,14 @@ function createSuiteContext(pair: DriverPair): SharedSuiteContext {
 }
 
 describe("test suite", () => {
-	for (const pair of DRIVER_MATRIX) {
-		if (!isCompatiblePair(pair)) {
-			continue;
-		}
-
-		const label = `exec-driver:${pair.execDriver} runtime-driver:${pair.runtimeDriver}`;
-		if (!isAvailablePair(pair)) {
+	for (const target of RUNTIME_TARGETS) {
+		const label = `runtime-target:${target}`;
+		if (!isTargetAvailable(target)) {
 			describe.skip(label, () => {});
 			continue;
 		}
 
-		const context = createSuiteContext(pair);
+		const context = createSuiteContext(target);
 		describe(label, () => {
 			for (const runSuite of SHARED_SUITES) {
 				runSuite(context);

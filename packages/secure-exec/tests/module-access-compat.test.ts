@@ -95,14 +95,14 @@ describe("moduleAccess compatibility fixture", () => {
 					capturedEvents.push(event);
 				},
 				processConfig: {
-					cwd: "/app",
+					cwd: "/root",
 					env: {},
 				},
 			});
 
 			const sandboxResult = await proc.exec(sandboxCode, {
-				filePath: "/app/src/index.js",
-				cwd: "/app",
+				filePath: "/root/src/index.js",
+				cwd: "/root",
 				env: {},
 			});
 

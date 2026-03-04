@@ -7,13 +7,21 @@ function readSource(relativePath: string): string {
 
 describe("isolate runtime injection policy", () => {
 	it("avoids template-literal isolate eval snippets in Node runtime loader", () => {
-		const indexSource = readSource("src/index.ts");
-		expect(indexSource).not.toMatch(/context\.eval\(\s*`/);
-		expect(indexSource).not.toContain("${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE}");
-		expect(indexSource).toContain('getIsolateRuntimeSource("globalExposureHelpers")');
-		expect(indexSource).toContain('getIsolateRuntimeSource("setupDynamicImport")');
-		expect(indexSource).toContain('getIsolateRuntimeSource("setupFsFacade")');
-		expect(indexSource).toContain('getIsolateRuntimeSource("initCommonjsModuleGlobals")');
+		const loaderSource = readSource("src/node/execution-driver.ts");
+		expect(loaderSource).not.toMatch(/context\.eval\(\s*`/);
+		expect(loaderSource).not.toContain(
+			"${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE}",
+		);
+		expect(loaderSource).toContain(
+			'getIsolateRuntimeSource("globalExposureHelpers")',
+		);
+		expect(loaderSource).toContain(
+			'getIsolateRuntimeSource("setupDynamicImport")',
+		);
+		expect(loaderSource).toContain('getIsolateRuntimeSource("setupFsFacade")');
+		expect(loaderSource).toContain(
+			'getIsolateRuntimeSource("initCommonjsModuleGlobals")',
+		);
 	});
 
 	it("keeps bridge/require setup loaders on static isolate-runtime sources", () => {

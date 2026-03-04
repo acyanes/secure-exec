@@ -1,8 +1,8 @@
 import { createNetworkStub, filterEnv } from "./shared/permissions.js";
 import type {
 	NetworkAdapter,
-	RuntimeDriver,
-	RuntimeDriverFactory,
+	NodeRuntimeDriver,
+	NodeRuntimeDriverFactory,
 	SystemDriver,
 } from "./types.js";
 import type {
@@ -19,7 +19,7 @@ const DEFAULT_SANDBOX_TMPDIR = "/tmp";
 
 export interface NodeRuntimeOptions {
 	systemDriver: SystemDriver;
-	runtimeDriverFactory: RuntimeDriverFactory;
+	runtimeDriverFactory: NodeRuntimeDriverFactory;
 	memoryLimit?: number;
 	cpuTimeLimitMs?: number;
 	timingMitigation?: TimingMitigation;
@@ -30,7 +30,7 @@ export interface NodeRuntimeOptions {
 	};
 }
 
-type UnsafeRuntimeDriver = RuntimeDriver & {
+type UnsafeRuntimeDriver = NodeRuntimeDriver & {
 	unsafeIsolate?: unknown;
 	createUnsafeContext?(options?: {
 		env?: Record<string, string>;
