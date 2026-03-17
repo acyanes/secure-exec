@@ -23,6 +23,12 @@ Started: 2026-03-16
 - Kernel ProcessContext has optional onStdout/onStderr for data emitted during spawn (before DriverProcess callbacks)
 - Kernel fdRead is async (returns Promise<Uint8Array>) — reads from VFS at cursor position
 - Use createTestKernel({ drivers: [...] }) and MockRuntimeDriver for kernel integration tests
+- Node RuntimeDriver package is `@secure-exec/runtime-node` at packages/runtime/node/
+- createNodeRuntime() wraps NodeExecutionDriver behind kernel RuntimeDriver interface
+- KernelCommandExecutor adapter converts kernel.spawn() ManagedProcess to CommandExecutor SpawnedProcess
+- npm/npx entry scripts resolved from host Node installation (walks up from process.execPath)
+- Kernel spawnManaged forwards onStdout/onStderr from SpawnOptions to InternalProcess callbacks
+- NodeExecutionDriver.exec() captures process.exit(N) via regex on error message — returns { code: N }
 
 ---
 
@@ -217,4 +223,29 @@ Started: 2026-03-16
   - WasiPolyfill expects synchronous WasiVFS — kernel VFS is async, bridged via SAB RPC in worker
   - vitest describe.skipIf() takes a boolean, not a string (different from node:test skip option)
   - FDTable from test/helpers/ is reusable in kernel-worker via relative import
+---
+
+## 2026-03-16 - US-018
+- Created Node RuntimeDriver package at packages/runtime/node/
+- New source files:
+  - driver.ts — RuntimeDriver implementation with createNodeRuntime() factory
+  - index.ts — re-exports
+- Architecture:
+  - spawn() creates a fresh NodeExecutionDriver per process, runs code in V8 isolate
+  - KernelCommandExecutor adapter wraps kernel.spawn() → ManagedProcess as CommandExecutor → SpawnedProcess
+  - child_process.spawn inside isolate routes through kernel to WasmVM or other drivers
+  - npm/npx resolved from host Node installation (walks from process.execPath)
+  - Kernel VFS adapted to secure-exec VFS interface (narrowing kernel superset types)
+  - Stdout/stderr captured via StdioHook callback and forwarded to ctx.onStdout + proc.onStdout
+- Fixed kernel bug: spawnManaged() now forwards onStdout/onStderr from SpawnOptions
+- 20 tests covering: factory, lifecycle, kernel integration (mount, -e, -p, script, error, missing file), command routing, exploit/abuse paths (process.exit, host fs, fork bomb)
+- Files changed: driver.ts (new), index.ts (new), driver.test.ts (new), package.json (new), tsconfig.json (new), vitest.config.ts (new), kernel.ts (bug fix)
+- 20 Node driver tests pass, 48 kernel tests pass, 358 WasmVM tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - Kernel spawnManaged must wire options.onStdout/onStderr via internal.onStdout setter (replays buffer)
+  - ManagedProcess (from kernel.spawn) has no onStdout/onStderr — use kernel.exec() for output capture, or set callbacks via InternalProcess setter
+  - NodeExecutionDriver.exec() onStdio fires with { channel, message } — message has no trailing newline, driver adds \n
+  - process.exit(N) inside isolate may not propagate exact exit code through kernel layer — depends on ProcessExitError regex match in execution.ts
+  - Kernel test helpers (MockRuntimeDriver) are not exported from @secure-exec/kernel package — inline mocks in consumer tests
+  - secure-exec doesn't export SpawnedProcess type from index.ts — use inline return type or type inference
 ---

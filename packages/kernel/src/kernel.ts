@@ -264,6 +264,14 @@ class KernelImpl implements Kernel {
 		const internal = this.spawnInternal(command, args, options);
 		let exitCode: number | null = null;
 
+		// Forward stdout/stderr callbacks from options (replays buffered data)
+		if (options?.onStdout) {
+			internal.onStdout = options.onStdout;
+		}
+		if (options?.onStderr) {
+			internal.onStderr = options.onStderr;
+		}
+
 		internal.driverProcess.wait().then((code) => {
 			exitCode = code;
 		});

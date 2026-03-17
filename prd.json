@@ -316,8 +316,8 @@
         "Tests pass"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": "Two critical integration points: (1) bridge child_process must route through kernel, not host — this is the Node→WasmVM bridge for shell commands. (2) npm/npx command resolution — the driver must find npm's JavaScript code to execute in the isolate. May need ModuleAccessFileSystem to overlay host node_modules for npm resolution while project files come from kernel VFS."
+      "passes": true,
+      "notes": "Completed in commit 0f5140b. KernelCommandExecutor adapter wraps kernel.spawn() as CommandExecutor for child_process bridge routing. npm/npx resolved from host Node installation. Kernel spawnManaged fixed to forward onStdout/onStderr from spawn options. 20 tests covering factory, lifecycle, kernel integration, command routing, and exploit paths."
     },
     {
       "id": "US-019",
