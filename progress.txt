@@ -735,3 +735,28 @@ PRD: ralph/kernel-hardening (46 stories)
   - ivm.Module instances work as Map keys (reference identity)
   - The reverse cache must be cleared in execution.ts executeWithRuntime alongside the forward cache
 ---
+
+## 2026-03-17 - US-047
+- Implemented resolver memoization with positive/negative caches in package-bundler.ts
+- Added ResolutionCache interface with 4 cache maps: resolveResults (top-level), packageJsonResults, existsResults, statResults
+- Threaded cache through all resolution functions: resolveModule, resolvePath, readPackageJson, resolveNodeModules, etc.
+- Added cachedSafeExists() and cachedStat() wrappers that check cache before VFS probes
+- Added resolutionCache to DriverDeps, initialized in NodeExecutionDriver constructor
+- Cache cleared per-execution in executeWithRuntime() alongside other caches
+- Wired cache through bridge-setup.ts (require resolution) and module-resolver.ts (ESM resolution)
+- Files changed:
+  - packages/secure-exec/src/package-bundler.ts — ResolutionCache type, createResolutionCache(), cached wrappers, threading
+  - packages/secure-exec/src/node/isolate-bootstrap.ts — added resolutionCache to DriverDeps
+  - packages/secure-exec/src/node/execution-driver.ts — initialize cache in constructor, pass through to ExecutionRuntime
+  - packages/secure-exec/src/execution.ts — add ResolutionCache to ExecutionRuntime type, clear per-execution
+  - packages/secure-exec/src/node/bridge-setup.ts — pass cache to resolveModule(), added to BridgeDeps
+  - packages/secure-exec/src/node/module-resolver.ts — pass cache to resolveModule() in resolveESMPath()
+  - packages/secure-exec/src/node/esm-compiler.ts — added resolutionCache to CompilerDeps
+  - packages/secure-exec/tests/runtime-driver/node/resolver-memoization.test.ts — 9 tests
+  - prd.json — marked US-047 as passes: true
+- **Learnings for future iterations:**
+  - Adding a new cache to the resolution pipeline requires updating: DriverDeps, BridgeDeps (Pick), CompilerDeps (Pick), ResolverDeps (Pick), ExecutionRuntime, and execution-driver passthrough
+  - The cache parameter is optional on resolveModule() to avoid breaking browser/worker.ts which doesn't share DriverDeps
+  - Mid-level caches (exists, stat, packageJson) benefit multiple modules in the same tree; top-level cache (resolveResults) gives O(1) for repeated identical lookups
+  - Using `?.` optional chaining on cache writes (e.g., `cache?.existsResults.set()`) keeps the uncached path clean
+---

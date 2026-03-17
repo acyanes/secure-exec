@@ -36,6 +36,27 @@ interface PackageJson {
 
 const FILE_EXTENSIONS = [".js", ".json", ".mjs", ".cjs"];
 
+/** Caches for module resolution to avoid redundant VFS probes. */
+export interface ResolutionCache {
+	/** Top-level resolution results keyed by `request\0fromDir\0mode` */
+	resolveResults: Map<string, string | null>;
+	/** Parsed package.json content by path */
+	packageJsonResults: Map<string, PackageJson | null>;
+	/** File existence by path */
+	existsResults: Map<string, boolean>;
+	/** Stat results by path (null = ENOENT) */
+	statResults: Map<string, { isDirectory: boolean } | null>;
+}
+
+export function createResolutionCache(): ResolutionCache {
+	return {
+		resolveResults: new Map(),
+		packageJsonResults: new Map(),
+		existsResults: new Map(),
+		statResults: new Map(),
+	};
+}
+
 /**
  * Resolve a module request to an absolute path in the virtual filesystem
  */
@@ -44,29 +65,44 @@ export async function resolveModule(
 	fromDir: string,
 	fs: VirtualFileSystem,
 	mode: ResolveMode = "require",
+	cache?: ResolutionCache,
 ): Promise<string | null> {
-	// Absolute paths - resolve directly
-	if (request.startsWith("/")) {
-		return resolveAbsolute(request, fs, mode);
+	// Check top-level cache
+	if (cache) {
+		const cacheKey = `${request}\0${fromDir}\0${mode}`;
+		if (cache.resolveResults.has(cacheKey)) {
+			return cache.resolveResults.get(cacheKey)!;
+		}
 	}
 
-	// Relative imports (including bare '.' and '..')
-	if (
+	let result: string | null;
+
+	// Absolute paths - resolve directly
+	if (request.startsWith("/")) {
+		result = await resolveAbsolute(request, fs, mode, cache);
+	} else if (
+		// Relative imports (including bare '.' and '..')
 		request.startsWith("./") ||
 		request.startsWith("../") ||
 		request === "." ||
 		request === ".."
 	) {
-		return resolveRelative(request, fromDir, fs, mode);
+		result = await resolveRelative(request, fromDir, fs, mode, cache);
+	} else if (request.startsWith("#")) {
+		// Package import maps, e.g. "#dev"
+		result = await resolvePackageImports(request, fromDir, fs, mode, cache);
+	} else {
+		// Bare imports - walk up node_modules
+		result = await resolveNodeModules(request, fromDir, fs, mode, cache);
 	}
 
-	// Package import maps, e.g. "#dev"
-	if (request.startsWith("#")) {
-		return resolvePackageImports(request, fromDir, fs, mode);
+	// Store in top-level cache
+	if (cache) {
+		const cacheKey = `${request}\0${fromDir}\0${mode}`;
+		cache.resolveResults.set(cacheKey, result);
 	}
 
-	// Bare imports - walk up node_modules
-	return resolveNodeModules(request, fromDir, fs, mode);
+	return result;
 }
 
 /** Resolve `#`-prefixed import-map specifiers by walking up to find the nearest package.json with `imports`. */
@@ -75,11 +111,12 @@ async function resolvePackageImports(
 	fromDir: string,
 	fs: VirtualFileSystem,
 	mode: ResolveMode,
+	cache?: ResolutionCache,
 ): Promise<string | null> {
 	let dir = fromDir;
 	while (dir !== "" && dir !== ".") {
 		const pkgJsonPath = join(dir, "package.json");
-		const pkgJson = await readPackageJson(fs, pkgJsonPath);
+		const pkgJson = await readPackageJson(fs, pkgJsonPath, cache);
 		if (pkgJson?.imports !== undefined) {
 			const target = resolveImportsTarget(pkgJson.imports, request, mode);
 			if (!target) {
@@ -94,7 +131,7 @@ async function resolvePackageImports(
 			const targetPath = target.startsWith("/")
 				? target
 				: join(dir, normalizePackagePath(target));
-			return resolvePath(targetPath, fs, mode);
+			return resolvePath(targetPath, fs, mode, cache);
 		}
 
 		if (dir === "/") {
@@ -113,8 +150,9 @@ async function resolveAbsolute(
 	request: string,
 	fs: VirtualFileSystem,
 	mode: ResolveMode,
+	cache?: ResolutionCache,
 ): Promise<string | null> {
-	return resolvePath(request, fs, mode);
+	return resolvePath(request, fs, mode, cache);
 }
 
 /**
@@ -125,9 +163,10 @@ async function resolveRelative(
 	fromDir: string,
 	fs: VirtualFileSystem,
 	mode: ResolveMode,
+	cache?: ResolutionCache,
 ): Promise<string | null> {
 	const basePath = join(fromDir, request);
-	return resolvePath(basePath, fs, mode);
+	return resolvePath(basePath, fs, mode, cache);
 }
 
 /**
@@ -139,6 +178,7 @@ async function resolveNodeModules(
 	fromDir: string,
 	fs: VirtualFileSystem,
 	mode: ResolveMode,
+	cache?: ResolutionCache,
 ): Promise<string | null> {
 	// Handle scoped packages: @scope/package
 	let packageName: string;
@@ -174,7 +214,7 @@ async function resolveNodeModules(
 		for (const packageDir of candidatePackageDirs) {
 			let entry: string | null;
 			try {
-				entry = await resolvePackageEntryFromDir(packageDir, subpath, fs, mode);
+				entry = await resolvePackageEntryFromDir(packageDir, subpath, fs, mode, cache);
 			} catch (error) {
 				if (isPermissionProbeError(error)) {
 					continue;
@@ -199,6 +239,7 @@ async function resolveNodeModules(
 			subpath,
 			fs,
 			mode,
+			cache,
 		);
 	} catch (error) {
 		if (isPermissionProbeError(error)) {
@@ -257,11 +298,12 @@ async function resolvePackageEntryFromDir(
 	subpath: string,
 	fs: VirtualFileSystem,
 	mode: ResolveMode,
+	cache?: ResolutionCache,
 ): Promise<string | null> {
 	const pkgJsonPath = join(packageDir, "package.json");
-	const pkgJson = await readPackageJson(fs, pkgJsonPath);
+	const pkgJson = await readPackageJson(fs, pkgJsonPath, cache);
 
-	if (!pkgJson && !(await safeExists(fs, packageDir))) {
+	if (!pkgJson && !(await cachedSafeExists(fs, packageDir, cache))) {
 		return null;
 	}
 
@@ -276,20 +318,20 @@ async function resolvePackageEntryFromDir(
 			return null;
 		}
 		const targetPath = join(packageDir, normalizePackagePath(exportsTarget));
-		const resolvedTarget = await resolvePath(targetPath, fs, mode);
+		const resolvedTarget = await resolvePath(targetPath, fs, mode, cache);
 		return resolvedTarget ?? targetPath;
 	}
 
 	// Bare subpath import without exports map: package/sub/path
 	if (subpath) {
-		return resolvePath(join(packageDir, subpath), fs, mode);
+		return resolvePath(join(packageDir, subpath), fs, mode, cache);
 	}
 
 	// Root package import
 	const entryField = getPackageEntryField(pkgJson, mode);
 	if (entryField) {
 		const entryPath = join(packageDir, normalizePackagePath(entryField));
-		const resolved = await resolvePath(entryPath, fs, mode);
+		const resolved = await resolvePath(entryPath, fs, mode, cache);
 		if (resolved) return resolved;
 		if (pkgJson) {
 			return entryPath;
@@ -297,54 +339,50 @@ async function resolvePackageEntryFromDir(
 	}
 
 	// Default fallback
-	return resolvePath(join(packageDir, "index"), fs, mode);
+	return resolvePath(join(packageDir, "index"), fs, mode, cache);
 }
 
 async function resolvePath(
 	basePath: string,
 	fs: VirtualFileSystem,
 	mode: ResolveMode,
+	cache?: ResolutionCache,
 ): Promise<string | null> {
 	let isDirectory = false;
 
-	try {
-		const statInfo = await fs.stat(basePath);
-		if (!statInfo.isDirectory) {
+	// Use cached stat when available
+	const statResult = await cachedStat(fs, basePath, cache);
+	if (statResult !== null) {
+		if (!statResult.isDirectory) {
 			return basePath;
 		}
 		isDirectory = true;
-	} catch (error) {
-		const err = error as NodeJS.ErrnoException;
-		if (err?.code && err.code !== "ENOENT") {
-			throw err;
-		}
-		// Path doesn't exist directly
 	}
 
 	// For extensionless specifiers, try files before directory resolution.
 	for (const ext of FILE_EXTENSIONS) {
 		const withExt = `${basePath}${ext}`;
-		if (await safeExists(fs, withExt)) {
+		if (await cachedSafeExists(fs, withExt, cache)) {
 			return withExt;
 		}
 	}
 
 	if (isDirectory) {
 		const pkgJsonPath = join(basePath, "package.json");
-		const pkgJson = await readPackageJson(fs, pkgJsonPath);
+		const pkgJson = await readPackageJson(fs, pkgJsonPath, cache);
 		const entryField = getPackageEntryField(pkgJson, mode);
 		if (entryField) {
 			const entryPath = join(basePath, normalizePackagePath(entryField));
 			// Avoid directory self-reference loops like "main": "."
 			if (entryPath !== basePath) {
-				const entry = await resolvePath(entryPath, fs, mode);
+				const entry = await resolvePath(entryPath, fs, mode, cache);
 				if (entry) return entry;
 			}
 		}
 
 			for (const ext of FILE_EXTENSIONS) {
 				const indexPath = join(basePath, `index${ext}`);
-				if (await safeExists(fs, indexPath)) {
+				if (await cachedSafeExists(fs, indexPath, cache)) {
 					return indexPath;
 				}
 			}
@@ -357,13 +395,21 @@ async function resolvePath(
 async function readPackageJson(
 	fs: VirtualFileSystem,
 	pkgJsonPath: string,
+	cache?: ResolutionCache,
 ): Promise<PackageJson | null> {
-	if (!(await safeExists(fs, pkgJsonPath))) {
+	if (cache?.packageJsonResults.has(pkgJsonPath)) {
+		return cache.packageJsonResults.get(pkgJsonPath)!;
+	}
+	if (!(await cachedSafeExists(fs, pkgJsonPath, cache))) {
+		cache?.packageJsonResults.set(pkgJsonPath, null);
 		return null;
 	}
 	try {
-		return JSON.parse(await fs.readTextFile(pkgJsonPath)) as PackageJson;
+		const result = JSON.parse(await fs.readTextFile(pkgJsonPath)) as PackageJson;
+		cache?.packageJsonResults.set(pkgJsonPath, result);
+		return result;
 	} catch {
+		cache?.packageJsonResults.set(pkgJsonPath, null);
 		return null;
 	}
 }
@@ -382,6 +428,44 @@ async function safeExists(fs: VirtualFileSystem, path: string): Promise<boolean>
 			return false;
 		}
 		throw error;
+	}
+}
+
+/** Cached wrapper around safeExists — avoids repeated VFS probes for the same path. */
+async function cachedSafeExists(
+	fs: VirtualFileSystem,
+	path: string,
+	cache?: ResolutionCache,
+): Promise<boolean> {
+	if (cache?.existsResults.has(path)) {
+		return cache.existsResults.get(path)!;
+	}
+	const result = await safeExists(fs, path);
+	cache?.existsResults.set(path, result);
+	return result;
+}
+
+/** Cached stat — returns { isDirectory } or null for ENOENT. */
+async function cachedStat(
+	fs: VirtualFileSystem,
+	path: string,
+	cache?: ResolutionCache,
+): Promise<{ isDirectory: boolean } | null> {
+	if (cache?.statResults.has(path)) {
+		return cache.statResults.get(path)!;
+	}
+	try {
+		const statInfo = await fs.stat(path);
+		const result = { isDirectory: statInfo.isDirectory };
+		cache?.statResults.set(path, result);
+		return result;
+	} catch (error) {
+		const err = error as NodeJS.ErrnoException;
+		if (err?.code && err.code !== "ENOENT") {
+			throw err;
+		}
+		cache?.statResults.set(path, null);
+		return null;
 	}
 }
 

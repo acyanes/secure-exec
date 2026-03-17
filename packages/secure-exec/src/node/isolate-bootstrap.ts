@@ -14,6 +14,7 @@ import type {
 	TimingMitigation,
 } from "../shared/api-types.js";
 import type { Permissions } from "../types.js";
+import type { ResolutionCache } from "../package-bundler.js";
 
 export interface NodeExecutionDriverOptions extends RuntimeDriverOptions {
 	createIsolate?(memoryLimit: number): unknown;
@@ -52,6 +53,7 @@ export interface DriverDeps {
 	packageTypeCache: Map<string, "module" | "commonjs" | null>;
 	dynamicImportCache: Map<string, ivm.Reference<unknown>>;
 	dynamicImportPending: Map<string, Promise<ivm.Reference<unknown>>>;
+	resolutionCache: ResolutionCache;
 }
 
 // Constants

@@ -9,7 +9,7 @@ import type { DriverDeps } from "./isolate-bootstrap.js";
 
 type ResolverDeps = Pick<
 	DriverDeps,
-	"filesystem" | "packageTypeCache" | "moduleFormatCache" | "isolateJsonPayloadLimitBytes"
+	"filesystem" | "packageTypeCache" | "moduleFormatCache" | "isolateJsonPayloadLimitBytes" | "resolutionCache"
 >;
 
 export async function getNearestPackageType(
@@ -156,7 +156,7 @@ export async function resolveReferrerDirectory(
 }
 
 export async function resolveESMPath(
-	deps: Pick<DriverDeps, "filesystem">,
+	deps: Pick<DriverDeps, "filesystem" | "resolutionCache">,
 	specifier: string,
 	referrerPath: string,
 ): Promise<string | null> {
@@ -187,5 +187,5 @@ export async function resolveESMPath(
 		return `/${parts.join("/")}`;
 	}
 
-	return resolveModule(specifier, referrerDir, deps.filesystem, "import");
+	return resolveModule(specifier, referrerDir, deps.filesystem, "import", deps.resolutionCache);
 }

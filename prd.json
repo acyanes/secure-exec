@@ -791,7 +791,7 @@
         "Tests pass"
       ],
       "priority": 47,
-      "passes": false,
+      "passes": true,
       "notes": "P8 — packages/secure-exec/src/package-bundler.ts, shared/require-setup.ts, node/execution-driver.ts"
     }
   ]

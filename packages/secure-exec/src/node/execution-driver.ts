@@ -1,6 +1,7 @@
 import ivm from "isolated-vm";
 import { DEFAULT_TIMING_MITIGATION, TIMEOUT_ERROR_MESSAGE, TIMEOUT_EXIT_CODE, createIsolate as createDefaultIsolate, getExecutionDeadlineMs, getExecutionRunOptions, isExecutionTimeoutError, runWithExecutionDeadline } from "../isolate.js";
 import { getPathDir } from "../module-resolver.js";
+import { createResolutionCache } from "../package-bundler.js";
 import { createCommandExecutorStub, createFsStub, createNetworkStub, filterEnv, wrapCommandExecutor, wrapFileSystem, wrapNetworkAdapter } from "../shared/permissions.js";
 import { executeWithRuntime } from "../execution.js";
 import type { NetworkAdapter, RuntimeDriver } from "../types.js";
@@ -86,6 +87,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			packageTypeCache: new Map(),
 			dynamicImportCache: new Map(),
 			dynamicImportPending: new Map(),
+			resolutionCache: createResolutionCache(),
 		};
 	}
 
@@ -166,6 +168,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				esmModuleReverseCache: d.esmModuleReverseCache,
 				dynamicImportCache: d.dynamicImportCache,
 				dynamicImportPending: d.dynamicImportPending,
+				resolutionCache: d.resolutionCache,
 				moduleFormatCache: d.moduleFormatCache,
 				packageTypeCache: d.packageTypeCache,
 				activeHttpServerIds: d.activeHttpServerIds,

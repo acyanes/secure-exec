@@ -1,5 +1,6 @@
 import ivm from "isolated-vm";
 import { getIsolateRuntimeSource } from "./generated/isolate-runtime.js";
+import type { ResolutionCache } from "./package-bundler.js";
 import { transformDynamicImport } from "./shared/esm-utils.js";
 import type {
 	StdioHook,
@@ -47,6 +48,7 @@ type ExecutionRuntime = {
 	esmModuleReverseCache: Map<ivm.Module, string>;
 	dynamicImportCache: Map<string, ivm.Reference<unknown>>;
 	dynamicImportPending: Map<string, Promise<ivm.Reference<unknown> | null>>;
+	resolutionCache: ResolutionCache;
 	moduleFormatCache: Map<string, "esm" | "cjs" | "json">;
 	packageTypeCache: Map<string, "module" | "commonjs" | null>;
 	activeHttpServerIds: Set<number>;
@@ -131,6 +133,10 @@ export async function executeWithRuntime<T = unknown>(
 	runtime.esmModuleReverseCache.clear();
 	runtime.dynamicImportCache.clear();
 	runtime.dynamicImportPending.clear();
+	runtime.resolutionCache.resolveResults.clear();
+	runtime.resolutionCache.packageJsonResults.clear();
+	runtime.resolutionCache.existsResults.clear();
+	runtime.resolutionCache.statResults.clear();
 	runtime.moduleFormatCache.clear();
 	runtime.packageTypeCache.clear();
 	runtime.activeHttpServerIds.clear();

@@ -59,6 +59,7 @@ type BridgeDeps = Pick<
 	| "bridgeBase64TransferLimitBytes"
 	| "isolateJsonPayloadLimitBytes"
 	| "activeHttpServerIds"
+	| "resolutionCache"
 >;
 
 export function emitConsoleEvent(
@@ -175,7 +176,7 @@ export async function setupRequire(
 			if (builtinSpecifier) {
 				return builtinSpecifier;
 			}
-			return resolveModule(request, fromDir, deps.filesystem);
+			return resolveModule(request, fromDir, deps.filesystem, "require", deps.resolutionCache);
 		},
 	);
 

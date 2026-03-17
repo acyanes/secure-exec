@@ -41,6 +41,7 @@ type CompilerDeps = Pick<
 	| "isolateJsonPayloadLimitBytes"
 	| "dynamicImportCache"
 	| "dynamicImportPending"
+	| "resolutionCache"
 >;
 
 /**
