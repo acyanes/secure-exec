@@ -189,3 +189,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - Single-process pipe tests (create pipe + dup in same process) are simpler than multi-process tests and sufficient for testing refcount mechanics
   - Pipe buffer concatenates writes from any reference to the same write description — order preserved within each call
 ---
+
+## 2026-03-17 - US-012
+- What was implemented: Added 2 tests verifying the full process exit FD cleanup chain: exit → FD table removed → refcounts decremented → pipe EOF / FD table gone
+- Files changed:
+  - packages/kernel/test/kernel-integration.test.ts — added "process exit FD cleanup chain" describe block with 2 tests: pipe write end EOF on exit, 10-FD cleanup on exit
+  - prd.json — marked US-012 as passes: true
+- **Learnings for future iterations:**
+  - The cleanup chain is: driverProcess.onExit → processTable.markExited → onProcessExit callback → cleanupProcessFDs → fdTableManager.remove(pid) → table.closeAll() → pipe refcounts drop → pipeManager.close() signals EOF
+  - Testing the chain end-to-end (process exit → pipe reader gets EOF) is more valuable than unit-testing individual links, since the chain is wired via callbacks
+  - Existing US-001 tests already verify FD table removal; US-012 adds chain verification (exit causes downstream effects like pipe EOF)
+  - fdOpen throwing ESRCH is the observable proxy for "FDTableManager has no entry" since has()/size aren't exposed through KernelInterface
+---

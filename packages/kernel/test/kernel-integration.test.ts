@@ -1159,6 +1159,90 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// Process exit FD cleanup chain (US-012)
+	// -----------------------------------------------------------------------
+
+	describe("process exit FD cleanup chain", () => {
+		it("process exits with pipe write end → reader gets EOF", async () => {
+			const driver = new MockRuntimeDriver(["writer", "reader"], {
+				writer: { neverExit: true },
+				reader: { neverExit: true },
+			});
+			const { kernel: k } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+			const ki = driver.kernelInterface!;
+
+			// Spawn writer, create pipe in its table
+			const writer = kernel.spawn("writer", []);
+			const { readFd, writeFd } = ki.pipe(writer.pid);
+
+			// Spawn reader as child — inherits both pipe ends
+			const reader = ki.spawn("reader", [], { ppid: writer.pid });
+
+			// Close inherited write end in reader (normal pipe setup)
+			ki.fdClose(reader.pid, writeFd);
+
+			// Writer sends data, reader receives it
+			ki.fdWrite(writer.pid, writeFd, new TextEncoder().encode("before-exit"));
+			const data = await ki.fdRead(reader.pid, readFd, 100);
+			expect(new TextDecoder().decode(data)).toBe("before-exit");
+
+			// Kill writer — exit triggers FD cleanup → write end refcount drops → pipe EOF
+			writer.kill(9);
+			await writer.wait();
+
+			// Reader should get EOF (empty Uint8Array)
+			const eof = await ki.fdRead(reader.pid, readFd, 100);
+			expect(eof.length).toBe(0);
+
+			// Writer's FD table is gone
+			expect(() => ki.fdOpen(writer.pid, "/tmp/x", 0)).toThrow("ESRCH");
+
+			reader.kill(9);
+			await reader.wait();
+		});
+
+		it("process exits with 10 open FDs → FDTableManager has no entry for that PID", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+			const ki = driver.kernelInterface!;
+
+			// Create 10 files
+			for (let i = 0; i < 10; i++) {
+				await vfs.writeFile(`/tmp/file-${i}.txt`, `content-${i}`);
+			}
+
+			// Spawn process and open all 10 files
+			const proc = kernel.spawn("proc", []);
+			const fds: number[] = [];
+			for (let i = 0; i < 10; i++) {
+				const fd = ki.fdOpen(proc.pid, `/tmp/file-${i}.txt`, 0);
+				expect(fd).toBeGreaterThanOrEqual(3);
+				fds.push(fd);
+			}
+
+			// Verify FDs are usable
+			for (let i = 0; i < 10; i++) {
+				const data = await ki.fdRead(proc.pid, fds[i], 100);
+				expect(new TextDecoder().decode(data)).toContain(`content-${i}`);
+			}
+
+			// Kill process — triggers full cleanup chain
+			proc.kill(9);
+			await proc.wait();
+
+			// FD table should be completely removed — all operations throw ESRCH
+			expect(() => ki.fdOpen(proc.pid, "/tmp/x", 0)).toThrow("ESRCH");
+			for (const fd of fds) {
+				await expect(ki.fdRead(proc.pid, fd, 1)).rejects.toThrow("ESRCH");
+			}
+		});
+	});
+
+	// -----------------------------------------------------------------------
 	// Permission deny scenarios (US-008)
 	// -----------------------------------------------------------------------
 
