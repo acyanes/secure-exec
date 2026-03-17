@@ -979,3 +979,90 @@ Add:
 - `package.json` in same directory read once, reused for subsequent resolves
 - All existing module resolution tests pass
 - Typecheck passes, tests pass
+
+---
+
+## P9 — Post-Implementation Fixes
+
+Issues found during adversarial review of Ralph's implementation of items 1-42.
+
+### 43. Fix Zombie Timer Cleanup Tests (US-013 was pass-vacuous)
+
+**Location:** `packages/kernel/test/kernel-integration.test.ts` — zombie timer cleanup tests
+
+**Problem:** The tests for US-013 only verify that `kernel.dispose()` completes without throwing. They do NOT verify that zombie cleanup timers are actually cleared from memory. A broken implementation that never clears timers would still pass. The test comments acknowledge this: "If timers weren't cleared, they'd fire 60s later referencing disposed state."
+
+**Fix:**
+- Expose timer tracking from ProcessTable (e.g., `zombieTimerCount` getter or `_zombieTimers` for test inspection)
+- After process exits and becomes zombie, assert timer was scheduled (count > 0)
+- After `kernel.dispose()`, assert timer was cleared (count === 0)
+- Alternative: use `vi.useFakeTimers()` to advance time past the 60s zombie TTL after dispose and verify no errors/callbacks fire
+
+**Acceptance criteria:**
+- Test: spawn process, let it exit → `processTable.zombieTimerCount > 0` (timer scheduled)
+- Test: call `kernel.dispose()` → `processTable.zombieTimerCount === 0` (timer cleared)
+- Test: with fake timers, advance 60s after dispose → no callbacks fire, no errors
+- Tests would FAIL if timers are not actually cleared during dispose
+- Typecheck passes, tests pass
+
+### 44. Fix pnpm Layout Fixture (US-038 was a stub)
+
+**Location:** `packages/secure-exec/tests/projects/pnpm-layout-pass/`
+
+**Problem:** The fixture has no actual pnpm-style `node_modules` layout. There's no `.pnpm/` symlink directory structure and no `pnpm-lock.yaml`. The fixture just has a `package.json` and `src/index.js` with a regular npm-style flat layout. It doesn't test what it claims to test — pnpm's symlink-based module resolution.
+
+**Fix:**
+- Actually install with `pnpm install` to create the real `.pnpm/` directory structure with symlinks
+- Commit the resulting `pnpm-lock.yaml` and `node_modules/` layout (or generate it in CI)
+- Verify `node_modules/left-pad` is a symlink pointing into `.pnpm/left-pad@1.3.0/node_modules/left-pad`
+- The fixture's `index.js` should `require('left-pad')` and verify it resolves through the symlink chain
+- `fixture.json` should specify `"packageManager": "pnpm"`
+
+**Acceptance criteria:**
+- `pnpm-lock.yaml` exists in fixture directory
+- `node_modules/.pnpm/` directory exists with real symlink structure
+- `node_modules/left-pad` is a symlink (not a regular directory)
+- `require('left-pad')` resolves through the symlink chain
+- Fixture passes through both project matrices (host parity + kernel)
+- Typecheck passes, tests pass
+
+### 45. Fix bun Layout Fixture (US-038 was misnamed)
+
+**Location:** `packages/secure-exec/tests/projects/bun-layout-pass/`
+
+**Problem:** The fixture's `fixture.json` says `"packageManager": "npm"` — it's just an npm layout with a different directory name. There's no bun lockfile (`bun.lockb`) and no bun-style `node_modules` structure. It doesn't test bun's hardlink-based module resolution at all.
+
+**Fix:**
+- Actually install with `bun install` to create the real bun layout
+- Commit `bun.lockb` and the resulting `node_modules/` structure
+- Update `fixture.json` to `"packageManager": "bun"`
+- The fixture's `index.js` should `require('left-pad')` and verify it resolves through bun's layout
+- Verify `node_modules/left-pad` is a hardlink (not symlink, not regular copy)
+
+**Acceptance criteria:**
+- `bun.lockb` exists in fixture directory
+- `fixture.json` says `"packageManager": "bun"`
+- `node_modules/left-pad` installed via bun's layout (hardlinks)
+- `require('left-pad')` resolves correctly
+- Fixture passes through both project matrices (host parity + kernel)
+- Typecheck passes, tests pass
+
+### 46. Express/Fastify Fixtures Should Use Real HTTP (optional improvement)
+
+**Location:** `packages/secure-exec/tests/projects/express-pass/`, `fastify-pass/`
+
+**Problem:** Both fixtures use programmatic request dispatchers with EventEmitter mocks instead of actually starting a server and making HTTP requests. This tests the framework's routing/middleware logic but doesn't exercise the network stack (http.createServer, socket handling, request parsing). A bug in the network bridge would not be caught.
+
+**Fix:**
+- Start the server on a random port (e.g., port 0 for auto-assignment)
+- Make real HTTP requests using Node's built-in `http.get`/`http.request`
+- Verify response status codes and bodies
+- Close server and exit
+- Keep the programmatic tests as a fallback if network isn't available
+
+**Acceptance criteria:**
+- Express fixture starts real HTTP server, makes real requests, verifies responses
+- Fastify fixture starts real HTTP server, makes real requests, verifies responses
+- Both still sandbox-blind (no sandbox-specific code)
+- Both still pass host parity comparison
+- Typecheck passes, tests pass
