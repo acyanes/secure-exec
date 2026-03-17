@@ -626,7 +626,7 @@
         "Tests pass"
       ],
       "priority": 37,
-      "passes": false,
+      "passes": true,
       "notes": "P6 — same pattern as Express fixture (US-035)"
     },
     {

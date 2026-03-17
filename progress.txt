@@ -79,6 +79,10 @@ PRD: ralph/kernel-hardening (46 stories)
 - Adding a new bridge fs operation requires 10+ file changes: types.ts, all 4 VFS impls, permissions.ts, bridge-contract.ts, global-exposure.ts, setup-fs-facade.ts, runtime-globals.d.ts, execution-driver.ts, bridge/fs.ts, and runtime-node adapters
 - Bridge fs.ts `bridgeCall()` helper wraps applySyncPromise calls with ENOENT/EACCES/EEXIST error re-creation — use it for ALL new bridge fs methods
 - runtime-node has two VFS adapters (createKernelVfsAdapter, createHostFallbackVfs) that both need new VFS methods forwarded
+- diagnostics_channel is Tier 4 (deferred) with a custom no-op stub in require-setup.ts — channels report no subscribers, publish is no-op; needed for Fastify compatibility
+- Fastify fixture uses `app.routing(req, res)` for programmatic dispatch — avoids light-my-request's deep ServerResponse dependency; `app.server.emit("request")` won't work because sandbox Server lacks full EventEmitter
+- Sandbox Server class needs `setTimeout`, `keepAliveTimeout`, `requestTimeout` properties for framework compatibility — added as no-ops
+- Moving a module from Unsupported (Tier 5) to Deferred (Tier 4) requires changes in: module-resolver.ts, require-setup.ts, node-stdlib.md contract, and adding BUILTIN_NAMED_EXPORTS entry
 
 ---
 
@@ -568,4 +572,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - Do NOT emit req 'end' event via `process.nextTick` — causes async error in sandbox's EventEmitter; emit synchronously after `app()` call instead
   - Sandbox project-matrix has NO NetworkAdapter, so `http.createServer().listen()` throws; `useDefaultNetwork: true` on createNodeDriver would enable it
   - Kernel e2e project-matrix tests skip locally when WASM binary is not built (skipUnlessWasmBuilt)
+---
+
+## 2026-03-17 - US-037
+- What was implemented: Fastify project-matrix fixture with programmatic request dispatch
+- Files changed:
+  - packages/secure-exec/tests/projects/fastify-pass/ — new fixture (package.json, fixture.json, src/index.js, pnpm-lock.yaml)
+  - packages/secure-exec/src/module-resolver.ts — moved diagnostics_channel from Unsupported to Deferred tier, added BUILTIN_NAMED_EXPORTS
+  - packages/secure-exec/isolate-runtime/src/inject/require-setup.ts — moved diagnostics_channel to deferred, added custom no-op stub with channel/tracingChannel/hasSubscribers
+  - packages/secure-exec/src/bridge/network.ts — added Server.setTimeout/keepAliveTimeout/requestTimeout/headersTimeout/timeout properties, added ServerResponseCallable function constructor for .call() compatibility
+  - .agent/contracts/node-stdlib.md — updated module tier assignment (diagnostics_channel → Tier 4)
+  - prd.json — marked US-037 passes: true
+- **Learnings for future iterations:**
+  - Fastify requires diagnostics_channel (Node.js built-in) — was Tier 5 (throw on require), needed promotion to Tier 4 with custom stub
+  - light-my-request (Fastify's inject lib) calls http.ServerResponse.call(this, req) — ES6 classes can't be called without new; use app.routing(req, res) instead
+  - Sandbox project-matrix has no NetworkAdapter — http.createServer().listen() throws ENOSYS; use programmatic dispatch for fixture testing
+  - Fastify's app.routing(req, res) is available after app.ready() and routes requests through the full Fastify pipeline without needing a server
+  - Mock req for Fastify needs: setEncoding, read, destroy, pipe, isPaused, _readableState (stream interface) plus httpVersion/httpVersionMajor/httpVersionMinor
+  - Mock res for Fastify needs: assignSocket, detachSocket, writeContinue, hasHeader, getHeaderNames, getHeaders, cork, uncork, setTimeout, addTrailers, flushHeaders
 ---

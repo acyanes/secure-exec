@@ -1203,6 +1203,18 @@ class Server {
     return this;
   }
 
+  // Node.js Server timeout properties (no-op in sandbox)
+  keepAliveTimeout = 5000;
+  requestTimeout = 300000;
+  headersTimeout = 60000;
+  timeout = 0;
+  maxRequestsPerSocket = 0;
+
+  setTimeout(_msecs?: number, _callback?: () => void): this {
+    if (typeof _msecs === "number") this.timeout = _msecs;
+    return this;
+  }
+
   ref(): this {
     return this;
   }
@@ -1240,6 +1252,27 @@ async function dispatchServerRequest(
   await outgoing.waitForClose();
   return JSON.stringify(outgoing.serialize());
 }
+
+// Function-based ServerResponse constructor — allows .call() inheritance
+// used by light-my-request (Fastify's inject), which does
+// http.ServerResponse.call(this, req) + util.inherits(Response, http.ServerResponse)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ServerResponseCallable(this: any): void {
+  this.statusCode = 200;
+  this.statusMessage = "OK";
+  this.headersSent = false;
+  this.writable = true;
+  this.writableFinished = false;
+  this._headers = new Map<string, string>();
+  this._chunks = [] as Uint8Array[];
+  this._listeners = {} as Record<string, EventListener[]>;
+  this._closedPromise = new Promise<void>((resolve) => {
+    this._resolveClosed = resolve;
+  });
+}
+ServerResponseCallable.prototype = Object.create(ServerResponseBridge.prototype, {
+  constructor: { value: ServerResponseCallable, writable: true, configurable: true },
+});
 
 // Create HTTP module
 function createHttpModule(_protocol: string): Partial<typeof nodeHttp> {
@@ -1311,7 +1344,7 @@ function createHttpModule(_protocol: string): Partial<typeof nodeHttp> {
     Agent,
     globalAgent: new Agent({ keepAlive: false }),
     Server: Server as unknown as typeof nodeHttp.Server,
-    ServerResponse: ServerResponseBridge as unknown as typeof nodeHttp.ServerResponse,
+    ServerResponse: ServerResponseCallable as unknown as typeof nodeHttp.ServerResponse,
     IncomingMessage: IncomingMessage as unknown as typeof nodeHttp.IncomingMessage,
     ClientRequest: ClientRequest as unknown as typeof nodeHttp.ClientRequest,
 

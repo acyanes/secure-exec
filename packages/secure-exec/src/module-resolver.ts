@@ -38,6 +38,7 @@ const DEFERRED_CORE_MODULES = [
 	"perf_hooks",
 	"async_hooks",
 	"worker_threads",
+	"diagnostics_channel",
 ] as const;
 
 /** Built-ins that are intentionally unimplemented (throw on use). */
@@ -45,7 +46,6 @@ const UNSUPPORTED_CORE_MODULES = [
 	"dgram",
 	"cluster",
 	"wasi",
-	"diagnostics_channel",
 	"inspector",
 	"repl",
 	"trace_events",
@@ -202,6 +202,12 @@ export const BUILTIN_NAMED_EXPORTS: Record<string, string[]> = {
 		"monitorEventLoopDelay",
 		"createHistogram",
 		"constants",
+	],
+	diagnostics_channel: [
+		"channel",
+		"hasSubscribers",
+		"tracingChannel",
+		"Channel",
 	],
 	stream: [
 		"Readable",

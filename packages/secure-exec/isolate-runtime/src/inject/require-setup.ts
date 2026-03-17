@@ -305,12 +305,12 @@
         'perf_hooks',
         'async_hooks',
         'worker_threads',
+        'diagnostics_channel',
       ]);
       const _unsupportedCoreModules = new Set([
         'dgram',
         'cluster',
         'wasi',
-        'diagnostics_channel',
         'inspector',
         'repl',
         'trace_events',
@@ -625,6 +625,44 @@
           _moduleCache['async_hooks'] = asyncHooksModule;
           _debugRequire('loaded', name, 'async-hooks-special');
           return asyncHooksModule;
+        }
+
+        // No-op diagnostics_channel stub — channels report no subscribers
+        if (name === 'diagnostics_channel') {
+          if (_moduleCache[name]) return _moduleCache[name];
+
+          function _createChannel() {
+            return {
+              hasSubscribers: false,
+              publish: function () {},
+              subscribe: function () {},
+              unsubscribe: function () {},
+            };
+          }
+
+          const dcModule = {
+            channel: function () { return _createChannel(); },
+            hasSubscribers: function () { return false; },
+            tracingChannel: function () {
+              return {
+                start: _createChannel(),
+                end: _createChannel(),
+                asyncStart: _createChannel(),
+                asyncEnd: _createChannel(),
+                error: _createChannel(),
+              };
+            },
+            Channel: function Channel(name) {
+              this.hasSubscribers = false;
+              this.publish = function () {};
+              this.subscribe = function () {};
+              this.unsubscribe = function () {};
+            },
+          };
+
+          _moduleCache[name] = dcModule;
+          _debugRequire('loaded', name, 'diagnostics-channel-special');
+          return dcModule;
         }
 
         // Get deferred module stubs

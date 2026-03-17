@@ -133,7 +133,7 @@ The `crypto` module SHALL be classified as Stub (Tier 3). `getRandomValues()` an
 - **THEN** the call MUST throw an error indicating subtle crypto is not supported in sandbox
 
 ### Requirement: Unimplemented Module Tier Assignments
-The following modules SHALL be classified as Deferred (Tier 4): `net`, `tls`, `readline`, `perf_hooks`, `async_hooks`, `worker_threads`. The following modules SHALL be classified as Unsupported (Tier 5): `dgram`, `http2` (full), `cluster`, `wasi`, `diagnostics_channel`, `inspector`, `repl`, `trace_events`, `domain`.
+The following modules SHALL be classified as Deferred (Tier 4): `net`, `tls`, `readline`, `perf_hooks`, `async_hooks`, `worker_threads`, `diagnostics_channel`. The following modules SHALL be classified as Unsupported (Tier 5): `dgram`, `http2` (full), `cluster`, `wasi`, `inspector`, `repl`, `trace_events`, `domain`.
 
 #### Scenario: Requiring a deferred unimplemented module
 - **WHEN** sandboxed code calls `require("net")`
