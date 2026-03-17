@@ -447,7 +447,7 @@
         "Tests pass"
       ],
       "priority": 27,
-      "passes": false,
+      "passes": true,
       "notes": "P4 — packages/kernel/src/device-layer.ts. Requires PID context in device layer operations."
     },
     {

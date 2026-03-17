@@ -66,6 +66,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - PTY setDiscipline/setForegroundPgid take description ID internally but KernelInterface methods take (pid, fd) and resolve through FD table
 - Termios API: tcgetattr/tcsetattr/tcsetpgrp/tcgetpgrp in KernelInterface; PtyManager stores Termios per PTY with configurable cc (control characters)
 - tcgetattr returns a deep copy — callers cannot mutate internal state
+- /dev/fd/N in fdOpen → dup(N); VFS-level readDir/stat for /dev/fd are PID-unaware; use devFdReadDir(pid) and devFdStat(pid, fd) on KernelInterface for PID-aware operations
+- Device layer has DEVICE_DIRS set (/dev/fd, /dev/pts) for pseudo-directories — stat returns directory mode 0o755, readDir returns empty (PID context required for dynamic content)
 
 ---
 
@@ -388,4 +390,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - stdin.resume() is needed after attaching the data listener to ensure data events fire; stdin.pause() in finally to avoid keeping event loop alive
   - The onData override is the key testing seam — tests capture output chunks without needing a real terminal
   - scripts/shell.ts uses relative imports (../packages/...) since it's not a workspace package; tsx handles TS execution from the repo root
+---
+
+## 2026-03-17 - US-027
+- What was implemented: /dev/fd pseudo-directory — fdOpen('/dev/fd/N') → dup(N), devFdReadDir/devFdStat on KernelInterface, device layer /dev/fd and /dev/pts directory support
+- Files changed:
+  - packages/kernel/src/types.ts — added devFdReadDir and devFdStat to KernelInterface
+  - packages/kernel/src/device-layer.ts — added DEVICE_DIRS set (/dev/fd, /dev/pts), isDeviceDir helper; updated stat/readDir/readDirWithTypes/exists/lstat/createDir/mkdir/removeDir for device pseudo-directories
+  - packages/kernel/src/kernel.ts — fdOpen intercepts /dev/fd/N → dup(pid, N); implemented devFdReadDir (iterates FD table entries) and devFdStat (stats underlying file, synthetic stat for pipe/PTY)
+  - packages/kernel/test/kernel-integration.test.ts — added 9 tests: file dup via /dev/fd, pipe read via /dev/fd, devFdReadDir lists 0/1/2, devFdReadDir includes opened FDs, devFdStat on file, devFdStat on pipe, EBADF for bad /dev/fd/N, stat('/dev/fd') directory, readDir('/dev/fd') empty, exists checks
+  - prd.json — marked US-027 as passes: true
+- **Learnings for future iterations:**
+  - /dev/fd/N open → dup is the primary mechanism; once dup'd, fdRead/fdWrite work naturally through existing pipe/PTY/file routing
+  - VFS-level readDir/stat for /dev/fd can't have PID context — the VFS is shared across all processes. PID-aware operations need dedicated KernelInterface methods (devFdReadDir, devFdStat)
+  - Device layer pseudo-directories (/dev/fd, /dev/pts) need separate handling from device nodes (/dev/null, /dev/stdin) — they have isDirectory:true stat and empty readDir
+  - devFdStat for pipe/PTY FDs returns a synthetic stat (mode 0o666, size 0, ino = description.id) since there's no underlying file to stat
+  - isDevicePath now also matches /dev/pts/* prefix (needed for PTY paths from US-022)
 ---

@@ -2430,4 +2430,171 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			expect(output).toContain("hi");
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// /dev/fd pseudo-directory
+	// -----------------------------------------------------------------------
+
+	describe("/dev/fd pseudo-directory", () => {
+		it("open('/dev/fd/N') is equivalent to dup(N) — file content matches", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("cmd", []);
+
+			// Write a file and open it
+			await ki.vfs.writeFile("/tmp/test.txt", "hello world");
+			const origFd = ki.fdOpen(proc.pid, "/tmp/test.txt", 0);
+
+			// Open via /dev/fd/N → dup
+			const devFd = ki.fdOpen(proc.pid, `/dev/fd/${origFd}`, 0);
+			expect(devFd).not.toBe(origFd);
+
+			// Read from the dup'd FD → same content
+			const data = await ki.fdRead(proc.pid, devFd, 1024);
+			expect(new TextDecoder().decode(data)).toBe("hello world");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("read via /dev/fd/<readEnd> returns pipe data", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("cmd", []);
+
+			// Create pipe and write data
+			const { readFd, writeFd } = ki.pipe(proc.pid);
+			ki.fdWrite(proc.pid, writeFd, new TextEncoder().encode("pipe data"));
+			ki.fdClose(proc.pid, writeFd);
+
+			// Open via /dev/fd/<readFd> → dup of read end
+			const devFd = ki.fdOpen(proc.pid, `/dev/fd/${readFd}`, 0);
+
+			// Read from dup'd pipe FD → pipe data
+			const data = await ki.fdRead(proc.pid, devFd, 1024);
+			expect(new TextDecoder().decode(data)).toBe("pipe data");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("devFdReadDir lists 0, 1, 2 at minimum", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("cmd", []);
+
+			const entries = ki.devFdReadDir(proc.pid);
+			expect(entries).toContain("0");
+			expect(entries).toContain("1");
+			expect(entries).toContain("2");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("devFdReadDir includes opened file FDs", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("cmd", []);
+
+			await ki.vfs.writeFile("/tmp/f.txt", "data");
+			const fd = ki.fdOpen(proc.pid, "/tmp/f.txt", 0);
+
+			const entries = ki.devFdReadDir(proc.pid);
+			expect(entries).toContain(String(fd));
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("stat('/dev/fd/N') returns stat for underlying file via devFdStat", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("cmd", []);
+
+			await ki.vfs.writeFile("/tmp/statfile.txt", "twelve chars");
+			const fd = ki.fdOpen(proc.pid, "/tmp/statfile.txt", 0);
+
+			const st = await ki.devFdStat(proc.pid, fd);
+			expect(st.size).toBe(12);
+			expect(st.isDirectory).toBe(false);
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("devFdStat on pipe FD returns synthetic character device stat", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("cmd", []);
+
+			const { readFd } = ki.pipe(proc.pid);
+			const st = await ki.devFdStat(proc.pid, readFd);
+			expect(st.size).toBe(0);
+			expect(st.isDirectory).toBe(false);
+			expect(st.mode).toBe(0o666);
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("open('/dev/fd/N') where N is not open throws EBADF", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("cmd", []);
+
+			expect(() => ki.fdOpen(proc.pid, "/dev/fd/99", 0)).toThrow("EBADF");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("stat('/dev/fd') returns directory stat via VFS", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+
+			const st = await ki.vfs.stat("/dev/fd");
+			expect(st.isDirectory).toBe(true);
+			expect(st.mode).toBe(0o755);
+
+			const proc = kernel.spawn("cmd", []);
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("readDir('/dev/fd') via VFS returns empty (PID-unaware)", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+
+			// VFS-level readDir has no PID context — returns empty
+			const entries = await ki.vfs.readDir("/dev/fd");
+			expect(entries).toEqual([]);
+
+			const proc = kernel.spawn("cmd", []);
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("exists('/dev/fd') and exists('/dev/fd/0') return true", async () => {
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+
+			expect(await ki.vfs.exists("/dev/fd")).toBe(true);
+			expect(await ki.vfs.exists("/dev/fd/0")).toBe(true);
+
+			const proc = kernel.spawn("cmd", []);
+			proc.kill();
+			await proc.wait();
+		});
+	});
 });

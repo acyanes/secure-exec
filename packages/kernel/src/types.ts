@@ -286,6 +286,12 @@ export interface KernelInterface {
 	/** Get the foreground process group for the terminal. */
 	tcgetpgrp(pid: number, fd: number): number;
 
+	// /dev/fd operations
+	/** List open FD numbers for a process (readDir /dev/fd). */
+	devFdReadDir(pid: number): string[];
+	/** Stat the underlying file for /dev/fd/N. */
+	devFdStat(pid: number, fd: number): Promise<import("./vfs.js").VirtualStat>;
+
 	// Environment
 	getenv(pid: number): Record<string, string>;
 	getcwd(pid: number): string;

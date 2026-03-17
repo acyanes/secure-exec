@@ -443,6 +443,15 @@ class KernelImpl implements Kernel {
 
 			// FD operations
 			fdOpen: (pid, path, flags, mode) => {
+				// /dev/fd/N → dup(N): equivalent to open() on the underlying FD
+				if (path.startsWith("/dev/fd/")) {
+					const n = parseInt(path.slice(8), 10);
+					if (isNaN(n)) throw new KernelError("EBADF", `bad file descriptor: ${path}`);
+					const table = this.getTable(pid);
+					const entry = table.get(n);
+					if (!entry) throw new KernelError("EBADF", `bad file descriptor ${n}`);
+					return table.dup(n);
+				}
 				const table = this.getTable(pid);
 				const filetype = FILETYPE_REGULAR_FILE;
 				return table.open(path, flags, filetype);
@@ -642,6 +651,42 @@ class KernelImpl implements Kernel {
 				const entry = table.get(fd);
 				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 				return this.ptyManager.getForegroundPgid(entry.description.id);
+			},
+
+			// /dev/fd operations
+			devFdReadDir: (pid) => {
+				const table = this.fdTableManager.get(pid);
+				if (!table) return [];
+				const fds: number[] = [];
+				for (const entry of table) fds.push(entry.fd);
+				return fds.sort((a, b) => a - b).map(String);
+			},
+			devFdStat: async (pid, fd) => {
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+
+				// Pipe/PTY FDs return a synthetic character device stat
+				if (this.pipeManager.isPipe(entry.description.id) || this.ptyManager.isPty(entry.description.id)) {
+					const now = Date.now();
+					return {
+						mode: 0o666,
+						size: 0,
+						isDirectory: false,
+						isSymbolicLink: false,
+						atimeMs: now,
+						mtimeMs: now,
+						ctimeMs: now,
+						birthtimeMs: now,
+						ino: entry.description.id,
+						nlink: 1,
+						uid: 0,
+						gid: 0,
+					};
+				}
+
+				// Regular file — stat the underlying path
+				return this.vfs.stat(entry.description.path);
 			},
 
 			// Environment

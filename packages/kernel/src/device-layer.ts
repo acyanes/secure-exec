@@ -26,8 +26,15 @@ const DEVICE_INO: Record<string, number> = {
 	"/dev/urandom": 0xffff_0006,
 };
 
+/** Device pseudo-directories that contain dynamic entries. */
+const DEVICE_DIRS = new Set(["/dev/fd", "/dev/pts"]);
+
 function isDevicePath(path: string): boolean {
-	return DEVICE_PATHS.has(path) || path.startsWith("/dev/fd/");
+	return DEVICE_PATHS.has(path) || path.startsWith("/dev/fd/") || path.startsWith("/dev/pts/");
+}
+
+function isDeviceDir(path: string): boolean {
+	return path === "/dev" || DEVICE_DIRS.has(path);
 }
 
 function deviceStat(path: string): VirtualStat {
@@ -91,6 +98,8 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 			if (path === "/dev") {
 				return DEV_DIR_ENTRIES.map((e) => e.name);
 			}
+			// /dev/fd and /dev/pts are dynamic — return empty at VFS level
+			if (DEVICE_DIRS.has(path)) return [];
 			return vfs.readDir(path);
 		},
 
@@ -98,6 +107,7 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 			if (path === "/dev") {
 				return DEV_DIR_ENTRIES;
 			}
+			if (DEVICE_DIRS.has(path)) return [];
 			return vfs.readDirWithTypes(path);
 		},
 
@@ -107,23 +117,23 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 		},
 
 		async createDir(path) {
-			if (path === "/dev") return;
+			if (isDeviceDir(path)) return;
 			return vfs.createDir(path);
 		},
 
 		async mkdir(path, options?) {
-			if (path === "/dev") return;
+			if (isDeviceDir(path)) return;
 			return vfs.mkdir(path, options);
 		},
 
 		async exists(path) {
-			if (isDevicePath(path) || path === "/dev") return true;
+			if (isDevicePath(path) || isDeviceDir(path)) return true;
 			return vfs.exists(path);
 		},
 
 		async stat(path) {
 			if (isDevicePath(path)) return deviceStat(path);
-			if (path === "/dev") {
+			if (isDeviceDir(path)) {
 				const now = Date.now();
 				return {
 					mode: 0o755,
@@ -134,7 +144,7 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 					mtimeMs: now,
 					ctimeMs: now,
 					birthtimeMs: now,
-					ino: 0xffff_0000,
+					ino: DEVICE_INO[path] ?? 0xffff_0000,
 					nlink: 2,
 					uid: 0,
 					gid: 0,
@@ -149,7 +159,7 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 		},
 
 		async removeDir(path) {
-			if (path === "/dev") throw new KernelError("EPERM", "cannot remove /dev");
+			if (isDeviceDir(path)) throw new KernelError("EPERM", `cannot remove ${path}`);
 			return vfs.removeDir(path);
 		},
 
@@ -175,6 +185,7 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 
 		async lstat(path) {
 			if (isDevicePath(path)) return deviceStat(path);
+			if (isDeviceDir(path)) return this.stat(path);
 			return vfs.lstat(path);
 		},
 
