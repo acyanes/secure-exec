@@ -24,7 +24,13 @@ describe("bridge registry policy", () => {
 	});
 
 	it("uses shared host bridge key constants for jail wiring", () => {
-		const source = readSource("src/node/execution-driver.ts");
+		// Jail wiring spans execution-driver.ts facade and extracted modules.
+		const nodeModulePaths = [
+			"src/node/execution-driver.ts",
+			"src/node/bridge-setup.ts",
+			"src/node/esm-compiler.ts",
+		];
+		const source = nodeModulePaths.map(readSource).join("\n");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.dynamicImport");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.networkFetchRaw");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.childProcessSpawnStart");

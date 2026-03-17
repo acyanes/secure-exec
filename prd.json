@@ -759,7 +759,7 @@
         "Tests pass"
       ],
       "priority": 45,
-      "passes": false,
+      "passes": true,
       "notes": "P8 — packages/secure-exec/src/node/execution-driver.ts. Pure extraction, no behavior changes."
     },
     {

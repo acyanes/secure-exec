@@ -87,6 +87,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - `declare module` for untyped npm packages must live in a `.d.ts` file (not `.ts`) — TypeScript treats it as augmentation in `.ts` files and fails with TS2665
 - Host httpRequest adapter must use `http` or `https` transport based on URL protocol — always using `https` breaks localhost HTTP requests from sandbox
 - To test sandbox http.request() client behavior, create an external nodeHttp server in the test code and have the sandbox request to it
+- NodeExecutionDriver split into 5 modules in src/node/: isolate-bootstrap.ts (types+utilities), module-resolver.ts, esm-compiler.ts, bridge-setup.ts, execution-lifecycle.ts; facade is execution-driver.ts (<300 lines)
+- Source policy tests (isolate-runtime-injection-policy, bridge-registry-policy) read specific source files by path — update them when moving code between files
 
 ---
 
@@ -694,4 +696,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - Examples don't need tsconfig.json — they inherit from the workspace and use tsx for runtime TS execution
   - Example naming convention: `@libsandbox/example-<name>` with `"private": true` and `"type": "module"`
   - InMemoryFileSystem methods (readTextFile, writeFile) are async (return Promises) — must await them on the host side
+---
+
+## 2026-03-17 - US-045
+- What was implemented: Split 1903-line NodeExecutionDriver monolith into 5 focused modules + 237-line facade
+- Files changed:
+  - packages/secure-exec/src/node/isolate-bootstrap.ts (new, 206 lines) — types (DriverDeps, BudgetState), constants, PayloadLimitError, payload/budget utility functions, host builtin helpers
+  - packages/secure-exec/src/node/module-resolver.ts (new, 191 lines) — getNearestPackageType, getModuleFormat, shouldRunAsESM, resolveESMPath, resolveReferrerDirectory
+  - packages/secure-exec/src/node/esm-compiler.ts (new, 367 lines) — compileESMModule, createESMResolver, runESM, dynamic import resolution, setupDynamicImport
+  - packages/secure-exec/src/node/bridge-setup.ts (new, 779 lines) — setupRequire (fs/child_process/network ivm.References), setupConsole, setupESMGlobals, timing mitigation
+  - packages/secure-exec/src/node/execution-lifecycle.ts (new, 136 lines) — applyExecutionOverrides, CommonJS globals, global exposure policy, awaitScriptResult, stdin/env/cwd overrides
+  - packages/secure-exec/src/node/execution-driver.ts (rewritten, 237 lines) — facade class owning DriverDeps state, delegating to extracted modules
+  - packages/secure-exec/tests/isolate-runtime-injection-policy.test.ts — updated to read all node/ source files instead of just execution-driver.ts
+  - packages/secure-exec/tests/bridge-registry-policy.test.ts — updated to read bridge-setup.ts and esm-compiler.ts for HOST_BRIDGE_GLOBAL_KEYS checks
+  - prd.json — marked US-045 as passes: true
+- **Learnings for future iterations:**
+  - Source policy tests (isolate-runtime-injection-policy, bridge-registry-policy) assert that specific strings appear in execution-driver.ts — when splitting files, update these tests to read all relevant source files
+  - DriverDeps interface centralizes mutable state shared across extracted modules — modules use Pick<DriverDeps, ...> for narrow dependency declarations
+  - Bridge-setup is the largest extracted module (779 lines) because all ivm.Reference creation for fs/child_process/network is a single cohesive unit
+  - The execution.ts ExecutionRuntime interface already existed as a delegation pattern — the facade wires extracted functions into this interface via executeInternal
 ---
