@@ -44,11 +44,13 @@ const WASM_BINARY_PATH = path.resolve(
 // Types (same schema as project-matrix.test.ts)
 // ---------------------------------------------------------------------------
 
-type PassFixtureMetadata = { entry: string; expectation: 'pass' };
+type PackageManager = 'pnpm' | 'npm';
+type PassFixtureMetadata = { entry: string; expectation: 'pass'; packageManager?: PackageManager };
 type FailFixtureMetadata = {
   entry: string;
   expectation: 'fail';
   fail: { code: number; stderrIncludes: string };
+  packageManager?: PackageManager;
 };
 type FixtureMetadata = PassFixtureMetadata | FailFixtureMetadata;
 type FixtureProject = { name: string; sourceDir: string; metadata: FixtureMetadata };
@@ -79,9 +81,10 @@ async function discoverFixtures(): Promise<FixtureProject[]> {
 
 function parseMetadata(raw: Record<string, unknown>, name: string): FixtureMetadata {
   const entry = raw.entry as string;
-  if (raw.expectation === 'pass') return { entry, expectation: 'pass' };
+  const packageManager = raw.packageManager as PackageManager | undefined;
+  if (raw.expectation === 'pass') return { entry, expectation: 'pass', ...(packageManager && { packageManager }) };
   const fail = raw.fail as { code: number; stderrIncludes: string };
-  return { entry, expectation: 'fail', fail };
+  return { entry, expectation: 'fail', fail, ...(packageManager && { packageManager }) };
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +113,12 @@ async function prepareFixtureProject(fixture: FixtureProject): Promise<PreparedF
     recursive: true,
     filter: (src) => !src.split(path.sep).includes('node_modules'),
   });
-  await execFileAsync('pnpm', ['install', '--ignore-workspace', '--prefer-offline'], {
+  const pm = fixture.metadata.packageManager ?? 'pnpm';
+  const installCmd =
+    pm === 'npm'
+      ? { cmd: 'npm', args: ['install', '--prefer-offline'] }
+      : { cmd: 'pnpm', args: ['install', '--ignore-workspace', '--prefer-offline'] };
+  await execFileAsync(installCmd.cmd, installCmd.args, {
     cwd: staging,
     timeout: COMMAND_TIMEOUT_MS,
     maxBuffer: 10 * 1024 * 1024,
@@ -135,17 +143,20 @@ async function prepareFixtureProject(fixture: FixtureProject): Promise<PreparedF
 async function createFixtureCacheKey(fixture: FixtureProject): Promise<string> {
   const hash = createHash('sha256');
   const nodeMajor = process.versions.node.split('.')[0] ?? '0';
-  const pnpmVersion = await getPnpmVersion();
+  const pm = fixture.metadata.packageManager ?? 'pnpm';
+  const pmVersion = pm === 'npm' ? await getNpmVersion() : await getPnpmVersion();
   hash.update(`node-major:${nodeMajor}\n`);
-  hash.update(`pnpm:${pnpmVersion}\n`);
+  hash.update(`pm:${pm}\n`);
+  hash.update(`pm-version:${pmVersion}\n`);
   hash.update(`platform:${process.platform}\n`);
   hash.update(`arch:${process.arch}\n`);
 
+  const lockFile = pm === 'npm' ? 'package-lock.json' : 'pnpm-lock.yaml';
   for (const [label, filePath] of [
     ['workspace-lock', path.join(WORKSPACE_ROOT, 'pnpm-lock.yaml')],
     ['workspace-package', path.join(WORKSPACE_ROOT, 'package.json')],
     ['fixture-package', path.join(fixture.sourceDir, 'package.json')],
-    ['fixture-lock', path.join(fixture.sourceDir, 'pnpm-lock.yaml')],
+    ['fixture-lock', path.join(fixture.sourceDir, lockFile)],
   ]) {
     hash.update(`${label}:`);
     try { hash.update(await readFile(filePath)); } catch { hash.update('<missing>'); }
@@ -171,6 +182,17 @@ function getPnpmVersion(): Promise<string> {
     }).then((r) => r.stdout.trim());
   }
   return _pnpmVersionPromise;
+}
+
+let _npmVersionPromise: Promise<string> | undefined;
+function getNpmVersion(): Promise<string> {
+  if (!_npmVersionPromise) {
+    _npmVersionPromise = execFileAsync('npm', ['--version'], {
+      cwd: WORKSPACE_ROOT,
+      timeout: COMMAND_TIMEOUT_MS,
+    }).then((r) => r.stdout.trim());
+  }
+  return _npmVersionPromise;
 }
 
 async function listFiles(root: string): Promise<string[]> {

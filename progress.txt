@@ -28,6 +28,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - Kernel ProcessContext has optional onStdout/onStderr for data emitted during spawn (before DriverProcess callbacks)
 - Kernel fdRead is async (returns Promise<Uint8Array>) — reads from VFS at cursor position
 - Use createTestKernel({ drivers: [...] }) and MockRuntimeDriver for kernel integration tests
+- fixture.json supports optional `packageManager` field ("pnpm" | "npm") — defaults to pnpm; use "npm" for flat node_modules layout testing
 - Node RuntimeDriver package is `@secure-exec/runtime-node` at packages/runtime/node/
 - createNodeRuntime() wraps NodeExecutionDriver behind kernel RuntimeDriver interface
 - KernelCommandExecutor adapter converts kernel.spawn() ManagedProcess to CommandExecutor SpawnedProcess
@@ -590,4 +591,25 @@ PRD: ralph/kernel-hardening (46 stories)
   - Fastify's app.routing(req, res) is available after app.ready() and routes requests through the full Fastify pipeline without needing a server
   - Mock req for Fastify needs: setEncoding, read, destroy, pipe, isPaused, _readableState (stream interface) plus httpVersion/httpVersionMajor/httpVersionMinor
   - Mock res for Fastify needs: assignSocket, detachSocket, writeContinue, hasHeader, getHeaderNames, getHeaders, cork, uncork, setTimeout, addTrailers, flushHeaders
+---
+
+## 2026-03-17 - US-038
+- What was implemented
+  - Created pnpm-layout-pass fixture: require('left-pad') through pnpm's symlinked .pnpm/ structure
+  - Created bun-layout-pass fixture: require('left-pad') through npm/bun flat node_modules layout
+  - Added `packageManager` field support to fixture.json schema ("pnpm" | "npm")
+  - Updated project-matrix.test.ts: metadata validation, install command selection, cache key with PM version
+  - Updated e2e-project-matrix.test.ts: same packageManager support for kernel tests
+  - bun-layout fixture uses `"packageManager": "npm"` to create flat layout (same structure as bun)
+- Files changed
+  - packages/secure-exec/tests/projects/pnpm-layout-pass/ — new fixture (package.json, fixture.json, src/index.js)
+  - packages/secure-exec/tests/projects/bun-layout-pass/ — new fixture (package.json, fixture.json, src/index.js)
+  - packages/secure-exec/tests/project-matrix.test.ts — PackageManager type, validation, install command routing, cache key
+  - packages/secure-exec/tests/kernel/e2e-project-matrix.test.ts — same packageManager support
+  - prd.json — marked US-038 passes: true
+- **Learnings for future iterations:**
+  - fixture.json schema is strict — new keys must be added to allowedTopLevelKeys set in parseFixtureMetadata
+  - Both project-matrix.test.ts and e2e-project-matrix.test.ts have parallel prep logic that must be kept in sync
+  - npm creates flat node_modules (same structure as bun) — good proxy for testing bun layout without requiring bun installed
+  - Cache key must include the package manager name and version to avoid cross-PM cache collisions
 ---

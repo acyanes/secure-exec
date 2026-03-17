@@ -30,9 +30,12 @@ const fixturePermissions = {
 	...allowAllEnv,
 };
 
+type PackageManager = "pnpm" | "npm";
+
 type PassFixtureMetadata = {
 	entry: string;
 	expectation: "pass";
+	packageManager?: PackageManager;
 };
 
 type FailFixtureMetadata = {
@@ -42,6 +45,7 @@ type FailFixtureMetadata = {
 		code: number;
 		stderrIncludes: string;
 	};
+	packageManager?: PackageManager;
 };
 
 type FixtureMetadata = PassFixtureMetadata | FailFixtureMetadata;
@@ -202,7 +206,7 @@ function parseFixtureMetadata(raw: unknown, fixtureName: string): FixtureMetadat
 		);
 	}
 
-	const allowedTopLevelKeys = new Set(["entry", "expectation", "fail"]);
+	const allowedTopLevelKeys = new Set(["entry", "expectation", "fail", "packageManager"]);
 	for (const key of Object.keys(raw)) {
 		if (!allowedTopLevelKeys.has(key)) {
 			throw new Error(
@@ -220,10 +224,23 @@ function parseFixtureMetadata(raw: unknown, fixtureName: string): FixtureMetadat
 		);
 	}
 
+	// Validate optional packageManager field.
+	const validPackageManagers = new Set(["pnpm", "npm"]);
+	if (
+		raw.packageManager !== undefined &&
+		(typeof raw.packageManager !== "string" || !validPackageManagers.has(raw.packageManager))
+	) {
+		throw new Error(
+			`Fixture "${fixtureName}" packageManager must be "pnpm" or "npm"`,
+		);
+	}
+	const packageManager = (raw.packageManager as PackageManager | undefined) ?? undefined;
+
 	if (raw.expectation === "pass") {
 		return {
 			entry: raw.entry,
 			expectation: "pass",
+			...(packageManager && { packageManager }),
 		};
 	}
 
@@ -262,6 +279,7 @@ function parseFixtureMetadata(raw: unknown, fixtureName: string): FixtureMetadat
 			code: raw.fail.code,
 			stderrIncludes: raw.fail.stderrIncludes,
 		},
+		...(packageManager && { packageManager }),
 	};
 }
 
@@ -291,15 +309,16 @@ async function prepareFixtureProject(fixture: FixtureProject): Promise<PreparedF
 		recursive: true,
 		filter: (source) => !isNodeModulesPath(source),
 	});
-	await execFileAsync(
-		"pnpm",
-		["install", "--ignore-workspace", "--prefer-offline"],
-		{
-			cwd: stagingDir,
-			timeout: COMMAND_TIMEOUT_MS,
-			maxBuffer: 10 * 1024 * 1024,
-		},
-	);
+	const pm = fixture.metadata.packageManager ?? "pnpm";
+	const installCmd =
+		pm === "npm"
+			? { cmd: "npm", args: ["install", "--prefer-offline"] }
+			: { cmd: "pnpm", args: ["install", "--ignore-workspace", "--prefer-offline"] };
+	await execFileAsync(installCmd.cmd, installCmd.args, {
+		cwd: stagingDir,
+		timeout: COMMAND_TIMEOUT_MS,
+		maxBuffer: 10 * 1024 * 1024,
+	});
 	await writeFile(
 		path.join(stagingDir, CACHE_READY_MARKER),
 		`${new Date().toISOString()}\n`,
@@ -333,9 +352,11 @@ async function createFixtureCacheKey(fixture: FixtureProject): Promise<string> {
 	// Hash fixture files and install-affecting runtime/tool factors.
 	const hash = createHash("sha256");
 	const nodeMajor = process.versions.node.split(".")[0] ?? "0";
-	const pnpmVersion = await getPnpmVersion();
+	const pm = fixture.metadata.packageManager ?? "pnpm";
+	const pmVersion = pm === "npm" ? await getNpmVersion() : await getPnpmVersion();
 	hash.update(`node-major:${nodeMajor}\n`);
-	hash.update(`pnpm:${pnpmVersion}\n`);
+	hash.update(`pm:${pm}\n`);
+	hash.update(`pm-version:${pmVersion}\n`);
 	hash.update(`platform:${process.platform}\n`);
 	hash.update(`arch:${process.arch}\n`);
 
@@ -354,10 +375,11 @@ async function createFixtureCacheKey(fixture: FixtureProject): Promise<string> {
 		"fixture-package",
 		path.join(fixture.sourceDir, "package.json"),
 	);
+	const lockFile = pm === "npm" ? "package-lock.json" : "pnpm-lock.yaml";
 	await hashOptionalFile(
 		hash,
 		"fixture-lock",
-		path.join(fixture.sourceDir, "pnpm-lock.yaml"),
+		path.join(fixture.sourceDir, lockFile),
 	);
 
 	const files = await listFixtureFiles(fixture.sourceDir);
@@ -385,6 +407,20 @@ function getPnpmVersion(): Promise<string> {
 	}
 
 	return pnpmVersionPromise;
+}
+
+let npmVersionPromise: Promise<string> | undefined;
+
+function getNpmVersion(): Promise<string> {
+	if (!npmVersionPromise) {
+		npmVersionPromise = execFileAsync("npm", ["--version"], {
+			cwd: WORKSPACE_ROOT,
+			timeout: COMMAND_TIMEOUT_MS,
+			maxBuffer: 1024 * 1024,
+		}).then((result) => result.stdout.trim());
+	}
+
+	return npmVersionPromise;
 }
 
 async function runHostExecution(
