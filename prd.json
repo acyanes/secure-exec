@@ -220,8 +220,8 @@
         "Tests pass"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created WasiProcessIO interface and createStandaloneProcessIO() bridge; polyfill delegates proc_exit/args_get/args_sizes_get/environ_get/environ_sizes_get/fd_fdstat_get to bridge"
     },
     {
       "id": "US-014",
@@ -426,6 +426,63 @@
     },
     {
       "id": "US-025",
+      "title": "E2e: Node code requires a real npm package through kernel",
+      "description": "As a developer, I need to verify that Node code running through the kernel can require and use a real npm package (hono), proving the full kernel VFS + Node RuntimeDriver + module resolution stack works end-to-end.",
+      "acceptanceCriteria": [
+        "Test in packages/secure-exec/tests/kernel/e2e-node-require.test.ts",
+        "Test setup: createIntegrationKernel({ runtimes: ['wasmvm', 'node'] }), write a package.json and src/index.js to the kernel VFS, pre-populate node_modules in VFS (either by copying from host or using a ModuleAccessFileSystem overlay — follow the pattern from packages/secure-exec/tests/project-matrix.test.ts which uses NodeFileSystem with host node_modules)",
+        "kernel.exec('node src/index.js') where src/index.js does: const { Hono } = require('hono'); const app = new Hono(); app.get('/', c => c.text('ok')); console.log(typeof app.fetch); — output includes 'function'",
+        "kernel.exec('node -e \"console.log(require('semver').valid('1.2.3'))\"') outputs '1.2.3' — tests CJS module resolution through kernel VFS",
+        "Test verifies exit code 0 and expected stdout for both cases",
+        "Gracefully skipped if WASM binary not built (skipUnlessWasmBuilt)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": "Follow the project-matrix pattern: use NodeFileSystem pointed at a temp directory with npm install run on the host, or use ModuleAccessFileSystem to overlay host node_modules read-only. The goal is testing kernel VFS → Node module resolution, not testing npm install itself."
+    },
+    {
+      "id": "US-026",
+      "title": "E2e: npm run scripts execute shell commands through kernel",
+      "description": "As a developer, I need to verify that 'npm run <script>' works through the kernel, where npm reads package.json, finds the script, and executes it via the shell (routed through kernel command registry to WasmVM).",
+      "acceptanceCriteria": [
+        "Test in packages/secure-exec/tests/kernel/e2e-npm-scripts.test.ts",
+        "Test setup: createIntegrationKernel({ runtimes: ['wasmvm', 'node'] }), write package.json with scripts: { 'greet': 'echo hello world', 'count': 'echo one && echo two && echo three', 'env-check': 'echo $npm_package_name' }",
+        "kernel.exec('npm run greet') stdout includes 'hello world'",
+        "kernel.exec('npm run count') stdout includes 'one', 'two', 'three' — tests sequential shell commands (&&) through WasmVM",
+        "kernel.exec('npm run env-check') stdout includes the package name — tests npm env variable injection through shell",
+        "kernel.exec('npm run nonexistent') returns non-zero exit code",
+        "Each test creates a fresh kernel",
+        "Gracefully skipped if WASM binary not built",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": "This is the key cross-runtime integration test: Node (npm) reads package.json → spawns shell via child_process (routed through kernel to WasmVM) → WasmVM executes the shell command → output flows back through kernel pipes to npm → captured by kernel.exec(). Tests the full Node→kernel→WasmVM→kernel→Node round-trip."
+    },
+    {
+      "id": "US-027",
+      "title": "E2e: npm install a package through kernel",
+      "description": "As a developer, I need to verify that 'npm install' works through the kernel with network access, proving the full package installation flow (download, extract, write to VFS) works end-to-end.",
+      "acceptanceCriteria": [
+        "Test in packages/secure-exec/tests/kernel/e2e-npm-install.test.ts",
+        "Test setup: createIntegrationKernel({ runtimes: ['wasmvm', 'node'], permissions: { ...allowAllFs, ...allowAllNetwork } }), write minimal package.json with { 'dependencies': { 'left-pad': '1.3.0' } } to VFS",
+        "kernel.exec('npm install') completes with exit code 0",
+        "After install, node_modules/left-pad/ exists in the kernel VFS",
+        "kernel.exec('node -e \"console.log(require('left-pad')('hi', 10))\"') outputs '        hi' — proves installed package is usable",
+        "Test timeout set to 30s (network-dependent)",
+        "Gracefully skipped if WASM binary not built or if no network available",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": "Uses left-pad (tiny, no native deps) to keep install fast. This is the heaviest integration test — it exercises: Node (npm) → network (registry fetch) → WasmVM (tar extraction via shell) → kernel VFS (writes node_modules) → Node (require resolution). May need network permission configuration on createIntegrationKernel."
+    },
+    {
+      "id": "US-028",
       "title": "Create kernel behavioral contracts",
       "description": "As a developer, I need behavioral contracts for the kernel package so future changes are reviewed against explicit requirements.",
       "acceptanceCriteria": [
@@ -435,12 +492,12 @@
         ".agent/contracts/README.md updated with new contract entries in the index table",
         "Typecheck passes"
       ],
-      "priority": 25,
+      "priority": 28,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-026",
+      "id": "US-029",
       "title": "Update existing contracts for kernel model",
       "description": "As a developer, I need existing contracts updated to reflect the kernel-mediated execution model so contracts remain the authoritative source of truth.",
       "acceptanceCriteria": [
@@ -453,7 +510,7 @@
         "All contract changes are internally consistent and use existing WHEN/THEN format",
         "Typecheck passes"
       ],
-      "priority": 26,
+      "priority": 29,
       "passes": false,
       "notes": ""
     }

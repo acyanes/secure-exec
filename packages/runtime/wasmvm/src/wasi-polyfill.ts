@@ -59,6 +59,8 @@ import { VfsError } from './vfs.ts';
 import type { VfsErrorCode } from './vfs.ts';
 import type { WasiFileIO } from './wasi-file-io.ts';
 import { createStandaloneFileIO } from './wasi-file-io.ts';
+import type { WasiProcessIO } from './wasi-process-io.ts';
+import { createStandaloneProcessIO } from './wasi-process-io.ts';
 
 // Additional WASI errno codes
 export const ERRNO_ESPIPE: number = 70;
@@ -223,6 +225,7 @@ export class WasiPolyfill {
   exitCode: number | null;
 
   private _fileIO: WasiFileIO;
+  private _processIO: WasiProcessIO;
   private _stdinData: Uint8Array | null;
   private _stdinOffset: number;
   private _stdinReader: StdinReader | null;
@@ -238,6 +241,7 @@ export class WasiPolyfill {
     this._fileIO = createStandaloneFileIO(fdTable, vfs);
     this.args = options.args ?? [];
     this.env = options.env ?? {};
+    this._processIO = createStandaloneProcessIO(fdTable, this.args, this.env);
     this.memory = options.memory ?? null;
     this.exitCode = null;
 
@@ -578,16 +582,16 @@ export class WasiPolyfill {
    *   offset 16: fs_rights_inheriting (u64 LE)
    */
   fd_fdstat_get(fd: number, buf_ptr: number): number {
-    const entry = this.fdTable.get(fd);
-    if (!entry) return ERRNO_EBADF;
+    const stat = this._processIO.fdFdstatGet(fd);
+    if (stat.errno !== ERRNO_SUCCESS) return stat.errno;
 
     const view = this._view();
-    view.setUint8(buf_ptr, entry.filetype);
+    view.setUint8(buf_ptr, stat.filetype);
     view.setUint8(buf_ptr + 1, 0); // padding
-    view.setUint16(buf_ptr + 2, entry.fdflags, true);
+    view.setUint16(buf_ptr + 2, stat.fdflags, true);
     view.setUint32(buf_ptr + 4, 0); // padding
-    view.setBigUint64(buf_ptr + 8, entry.rightsBase, true);
-    view.setBigUint64(buf_ptr + 16, entry.rightsInheriting, true);
+    view.setBigUint64(buf_ptr + 8, stat.rightsBase, true);
+    view.setBigUint64(buf_ptr + 16, stat.rightsInheriting, true);
     return ERRNO_SUCCESS;
   }
 
@@ -1054,14 +1058,15 @@ export class WasiPolyfill {
    * argv_buf_ptr: pointer to buffer where arg strings are written (null-terminated)
    */
   args_get(argv_ptr: number, argv_buf_ptr: number): number {
+    const args = this._processIO.getArgs();
     const view = this._view();
     const mem = this._bytes();
     const encoder = new TextEncoder();
     let bufOffset = argv_buf_ptr;
 
-    for (let i = 0; i < this.args.length; i++) {
+    for (let i = 0; i < args.length; i++) {
       view.setUint32(argv_ptr + i * 4, bufOffset, true);
-      const encoded = encoder.encode(this.args[i]);
+      const encoded = encoder.encode(args[i]);
       mem.set(encoded, bufOffset);
       mem[bufOffset + encoded.length] = 0; // null terminator
       bufOffset += encoded.length + 1;
@@ -1074,13 +1079,14 @@ export class WasiPolyfill {
    * Writes argc (u32) at argc_ptr and total argv buffer size (u32) at argv_buf_size_ptr.
    */
   args_sizes_get(argc_ptr: number, argv_buf_size_ptr: number): number {
+    const args = this._processIO.getArgs();
     const view = this._view();
     const encoder = new TextEncoder();
     let bufSize = 0;
-    for (const arg of this.args) {
+    for (const arg of args) {
       bufSize += encoder.encode(arg).length + 1; // +1 for null terminator
     }
-    view.setUint32(argc_ptr, this.args.length, true);
+    view.setUint32(argc_ptr, args.length, true);
     view.setUint32(argv_buf_size_ptr, bufSize, true);
     return ERRNO_SUCCESS;
   }
@@ -1091,10 +1097,11 @@ export class WasiPolyfill {
    * environ_buf_ptr: pointer to buffer where "KEY=VALUE\0" strings are written
    */
   environ_get(environ_ptr: number, environ_buf_ptr: number): number {
+    const env = this._processIO.getEnviron();
     const view = this._view();
     const mem = this._bytes();
     const encoder = new TextEncoder();
-    const entries = Object.entries(this.env);
+    const entries = Object.entries(env);
     let bufOffset = environ_buf_ptr;
 
     for (let i = 0; i < entries.length; i++) {
@@ -1113,9 +1120,10 @@ export class WasiPolyfill {
    * Writes environ count (u32) at environc_ptr and total buffer size (u32) at environ_buf_size_ptr.
    */
   environ_sizes_get(environc_ptr: number, environ_buf_size_ptr: number): number {
+    const env = this._processIO.getEnviron();
     const view = this._view();
     const encoder = new TextEncoder();
-    const entries = Object.entries(this.env);
+    const entries = Object.entries(env);
     let bufSize = 0;
     for (const [key, value] of entries) {
       bufSize += encoder.encode(`${key}=${value}`).length + 1;
@@ -1217,6 +1225,7 @@ export class WasiPolyfill {
    */
   proc_exit(exitCode: number): never {
     this.exitCode = exitCode;
+    this._processIO.procExit(exitCode);
     throw new WasiProcExit(exitCode);
   }
 

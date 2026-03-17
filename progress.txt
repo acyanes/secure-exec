@@ -8,6 +8,7 @@ Started: 2026-03-16
 - pnpm-workspace.yaml includes `packages/os/*` and `packages/runtime/*` globs
 - Adding a VFS method requires updating: interface (vfs.ts), all implementations (TestFileSystem, NodeFileSystem, InMemoryFileSystem), device-layer.ts, permissions.ts
 - WASI polyfill file I/O goes through WasiFileIO bridge (wasi-file-io.ts); stdio/pipe handling stays in the polyfill
+- WASI polyfill process/FD-stat goes through WasiProcessIO bridge (wasi-process-io.ts); proc_exit exception still thrown by polyfill
 - WASI error precedence: check filetype before rights (e.g., ESPIPE before EBADF in fd_seek)
 
 ---
@@ -92,4 +93,24 @@ Started: 2026-03-16
   - WasmVM FDTable has resource types (stdio, vfsFile, pipe, preopen) — polyfill routes by resource type
   - Bridge interface returns { errno, data } structs matching WASI convention (not exceptions)
   - When refactoring, preserve check ordering — tests catch subtle error code mismatches
+---
+
+## 2026-03-16 - US-013
+- Created WasiProcessIO interface and createStandaloneProcessIO() bridge (wasi-process-io.ts)
+- Moved process/FD-stat logic from WasiPolyfill into the standalone bridge:
+  - procExit: records exit code (exception throwing stays in polyfill)
+  - getArgs: returns command-line args
+  - getEnviron: returns environment variables
+  - fdFdstatGet: returns filetype, fdflags, rightsBase, rightsInheriting
+- Modified WasiPolyfill to delegate through _processIO bridge:
+  - proc_exit → _processIO.procExit() + throw WasiProcExit
+  - args_get/args_sizes_get → _processIO.getArgs()
+  - environ_get/environ_sizes_get → _processIO.getEnviron()
+  - fd_fdstat_get → _processIO.fdFdstatGet()
+- Files changed: wasi-process-io.ts (new), wasi-polyfill.ts
+- All 451 WasmVM tests pass, 36 kernel tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - Bridge pattern: interface returns raw data, polyfill handles WASM memory serialization
+  - proc_exit has two concerns: recording exit (bridge) and unwinding WASM stack (exception, stays in polyfill)
+  - fd_fdstat_set_flags is a mutation, not a stat read — it stays in the polyfill until a broader FD mutation bridge is needed
 ---
