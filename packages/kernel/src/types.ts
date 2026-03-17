@@ -275,6 +275,43 @@ export interface ProcessInfo {
 	exitCode: number | null;
 }
 
+// ---------------------------------------------------------------------------
+// Kernel error type
+// ---------------------------------------------------------------------------
+
+/** POSIX error codes used by the kernel. */
+export type KernelErrorCode =
+	| "EACCES"
+	| "EBADF"
+	| "EEXIST"
+	| "EINVAL"
+	| "EIO"
+	| "EISDIR"
+	| "ENOENT"
+	| "ENOSYS"
+	| "ENOTEMPTY"
+	| "ENOTDIR"
+	| "EPERM"
+	| "EPIPE"
+	| "ESPIPE"
+	| "ESRCH"
+	| "ETIMEDOUT";
+
+/**
+ * Structured error for kernel operations.
+ * Carries a machine-readable `code` so callers can map to errno without
+ * string matching.
+ */
+export class KernelError extends Error {
+	readonly code: KernelErrorCode;
+
+	constructor(code: KernelErrorCode, message: string) {
+		super(`${code}: ${message}`);
+		this.code = code;
+		this.name = "KernelError";
+	}
+}
+
 // Signals
 export const SIGTERM = 15;
 export const SIGKILL = 9;

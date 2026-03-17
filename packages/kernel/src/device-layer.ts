@@ -6,6 +6,7 @@
  */
 
 import type { VirtualFileSystem, VirtualStat, VirtualDirEntry } from "./vfs.js";
+import { KernelError } from "./types.js";
 
 const DEVICE_PATHS = new Set([
 	"/dev/null",
@@ -143,18 +144,18 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 		},
 
 		async removeFile(path) {
-			if (isDevicePath(path)) throw new Error("EPERM: cannot remove device");
+			if (isDevicePath(path)) throw new KernelError("EPERM", "cannot remove device");
 			return vfs.removeFile(path);
 		},
 
 		async removeDir(path) {
-			if (path === "/dev") throw new Error("EPERM: cannot remove /dev");
+			if (path === "/dev") throw new KernelError("EPERM", "cannot remove /dev");
 			return vfs.removeDir(path);
 		},
 
 		async rename(oldPath, newPath) {
 			if (isDevicePath(oldPath) || isDevicePath(newPath)) {
-				throw new Error("EPERM: cannot rename device");
+				throw new KernelError("EPERM", "cannot rename device");
 			}
 			return vfs.rename(oldPath, newPath);
 		},
@@ -178,7 +179,7 @@ export function createDeviceLayer(vfs: VirtualFileSystem): VirtualFileSystem {
 		},
 
 		async link(oldPath, newPath) {
-			if (isDevicePath(oldPath)) throw new Error("EPERM: cannot link device");
+			if (isDevicePath(oldPath)) throw new KernelError("EPERM", "cannot link device");
 			return vfs.link(oldPath, newPath);
 		},
 

@@ -7,10 +7,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createWasmVmRuntime, WASMVM_COMMANDS } from '../src/driver.ts';
+import { createWasmVmRuntime, WASMVM_COMMANDS, mapErrorToErrno } from '../src/driver.ts';
 import type { WasmVmRuntimeOptions } from '../src/driver.ts';
 import { DATA_BUFFER_BYTES } from '../src/syscall-rpc.ts';
-import { createKernel } from '@secure-exec/kernel';
+import { createKernel, KernelError } from '@secure-exec/kernel';
 import type {
   RuntimeDriver,
   KernelInterface,
@@ -18,6 +18,7 @@ import type {
   DriverProcess,
   Kernel,
 } from '@secure-exec/kernel';
+import { ERRNO_MAP } from '../src/wasi-constants.ts';
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -403,6 +404,86 @@ describe('WasmVM RuntimeDriver', () => {
       const result = await kernel.exec('cat /small-file');
       expect(result.exitCode).toBe(0);
       expect(result.stdout.length).toBe(1024);
+    });
+  });
+
+  describe('mapErrorToErrno — structured error code mapping', () => {
+    it('maps KernelError.code to WASI errno (ENOENT → 44)', () => {
+      const err = new KernelError('ENOENT', 'file not found');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.ENOENT);
+      expect(mapErrorToErrno(err)).toBe(44);
+    });
+
+    it('maps KernelError.code to WASI errno (EBADF → 8)', () => {
+      const err = new KernelError('EBADF', 'bad file descriptor 5');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.EBADF);
+    });
+
+    it('maps KernelError.code to WASI errno (ESPIPE → 70)', () => {
+      const err = new KernelError('ESPIPE', 'illegal seek');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.ESPIPE);
+    });
+
+    it('maps KernelError.code to WASI errno (EPIPE → 64)', () => {
+      const err = new KernelError('EPIPE', 'write end closed');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.EPIPE);
+    });
+
+    it('maps KernelError.code to WASI errno (EACCES → 2)', () => {
+      const err = new KernelError('EACCES', 'permission denied');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.EACCES);
+    });
+
+    it('maps KernelError.code to WASI errno (EPERM → 63)', () => {
+      const err = new KernelError('EPERM', 'cannot remove device');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.EPERM);
+    });
+
+    it('maps KernelError.code to WASI errno (EINVAL → 28)', () => {
+      const err = new KernelError('EINVAL', 'invalid whence 99');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.EINVAL);
+    });
+
+    it('prefers structured .code over string matching', () => {
+      // Error with code=ENOENT but message mentions EBADF — code wins
+      const err = new KernelError('ENOENT', 'EBADF appears in message');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.ENOENT);
+    });
+
+    it('falls back to string matching for plain Error', () => {
+      const err = new Error('ENOENT: no such file');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.ENOENT);
+    });
+
+    it('falls back to string matching for Error with unknown code', () => {
+      const err = new Error('EISDIR: is a directory');
+      (err as any).code = 'UNKNOWN_CODE';
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.EISDIR);
+    });
+
+    it('returns EIO for non-Error values', () => {
+      expect(mapErrorToErrno('string error')).toBe(ERRNO_MAP.EIO);
+      expect(mapErrorToErrno(42)).toBe(ERRNO_MAP.EIO);
+      expect(mapErrorToErrno(null)).toBe(ERRNO_MAP.EIO);
+    });
+
+    it('returns EIO for Error with no recognized code or message', () => {
+      const err = new Error('something went wrong');
+      expect(mapErrorToErrno(err)).toBe(ERRNO_MAP.EIO);
+    });
+
+    it('maps all KernelErrorCode values to non-zero errno', () => {
+      const codes = [
+        'EACCES', 'EBADF', 'EEXIST', 'EINVAL', 'EIO', 'EISDIR',
+        'ENOENT', 'ENOSYS', 'ENOTDIR', 'ENOTEMPTY', 'EPERM', 'EPIPE',
+        'ESPIPE', 'ESRCH', 'ETIMEDOUT',
+      ] as const;
+      for (const code of codes) {
+        expect(ERRNO_MAP[code]).toBeDefined();
+        expect(ERRNO_MAP[code]).toBeGreaterThan(0);
+        const err = new KernelError(code, 'test');
+        expect(mapErrorToErrno(err)).toBe(ERRNO_MAP[code]);
+      }
     });
   });
 });

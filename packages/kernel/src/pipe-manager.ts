@@ -7,7 +7,7 @@
  */
 
 import type { FileDescription } from "./types.js";
-import { FILETYPE_PIPE, O_RDONLY, O_WRONLY } from "./types.js";
+import { FILETYPE_PIPE, O_RDONLY, O_WRONLY, KernelError } from "./types.js";
 import type { ProcessFDTable } from "./fd-table.js";
 
 export interface PipeEnd {
@@ -78,11 +78,11 @@ export class PipeManager {
 	/** Write data to a pipe's write end. */
 	write(descriptionId: number, data: Uint8Array): number {
 		const ref = this.descToPipe.get(descriptionId);
-		if (!ref || ref.end !== "write") throw new Error("EBADF: not a pipe write end");
+		if (!ref || ref.end !== "write") throw new KernelError("EBADF", "not a pipe write end");
 
 		const state = this.pipes.get(ref.pipeId);
-		if (!state) throw new Error("EBADF: pipe not found");
-		if (state.closed.write) throw new Error("EPIPE: write end closed");
+		if (!state) throw new KernelError("EBADF", "pipe not found");
+		if (state.closed.write) throw new KernelError("EPIPE", "write end closed");
 
 		// If readers are waiting, deliver directly
 		if (state.readWaiters.length > 0) {
@@ -98,10 +98,10 @@ export class PipeManager {
 	/** Read data from a pipe's read end. Returns null on EOF. */
 	read(descriptionId: number, length: number): Promise<Uint8Array | null> {
 		const ref = this.descToPipe.get(descriptionId);
-		if (!ref || ref.end !== "read") throw new Error("EBADF: not a pipe read end");
+		if (!ref || ref.end !== "read") throw new KernelError("EBADF", "not a pipe read end");
 
 		const state = this.pipes.get(ref.pipeId);
-		if (!state) throw new Error("EBADF: pipe not found");
+		if (!state) throw new KernelError("EBADF", "pipe not found");
 
 		// Data available in buffer
 		if (state.buffer.length > 0) {

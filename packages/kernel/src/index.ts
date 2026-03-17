@@ -34,7 +34,11 @@ export type {
 	NetworkAccessRequest,
 	ChildProcessAccessRequest,
 	EnvAccessRequest,
+	KernelErrorCode,
 } from "./types.js";
+
+// Structured kernel error
+export { KernelError } from "./types.js";
 
 // VFS types
 export type {

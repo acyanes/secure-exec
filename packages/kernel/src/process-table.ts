@@ -7,6 +7,7 @@
  */
 
 import type { DriverProcess, ProcessContext, ProcessEntry, ProcessInfo } from "./types.js";
+import { KernelError } from "./types.js";
 
 const ZOMBIE_TTL_MS = 60_000;
 
@@ -117,7 +118,7 @@ export class ProcessTable {
 	/** Send a signal to a process via its driver. */
 	kill(pid: number, signal: number): void {
 		const entry = this.entries.get(pid);
-		if (!entry) throw new Error(`ESRCH: no such process ${pid}`);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
 		if (entry.status === "exited") return;
 		entry.driverProcess.kill(signal);
 	}
@@ -125,7 +126,7 @@ export class ProcessTable {
 	/** Get the parent PID for a process. */
 	getppid(pid: number): number {
 		const entry = this.entries.get(pid);
-		if (!entry) throw new Error(`ESRCH: no such process ${pid}`);
+		if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
 		return entry.ppid;
 	}
 

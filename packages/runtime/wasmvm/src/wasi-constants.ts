@@ -90,8 +90,40 @@ export const RIGHTS_DIR_ALL: bigint = RIGHT_FD_FDSTAT_SET_FLAGS | RIGHT_FD_SYNC 
   RIGHT_FD_FILESTAT_GET | RIGHT_FD_FILESTAT_SET_TIMES;
 
 // ---------------------------------------------------------------------------
-// WASI errno codes
+// WASI errno codes (wasi_snapshot_preview1)
 // ---------------------------------------------------------------------------
 export const ERRNO_SUCCESS = 0;
+export const ERRNO_EACCES = 2;
 export const ERRNO_EBADF = 8;
+export const ERRNO_EEXIST = 20;
 export const ERRNO_EINVAL = 28;
+export const ERRNO_EIO = 76;
+export const ERRNO_EISDIR = 31;
+export const ERRNO_ENOENT = 44;
+export const ERRNO_ENOSYS = 52;
+export const ERRNO_ENOTDIR = 54;
+export const ERRNO_ENOTEMPTY = 55;
+export const ERRNO_EPERM = 63;
+export const ERRNO_EPIPE = 64;
+export const ERRNO_ESPIPE = 70;
+export const ERRNO_ESRCH = 71;
+export const ERRNO_ETIMEDOUT = 73;
+
+/** Map POSIX error code strings to WASI errno numbers. */
+export const ERRNO_MAP: Record<string, number> = {
+	EACCES: ERRNO_EACCES,
+	EBADF: ERRNO_EBADF,
+	EEXIST: ERRNO_EEXIST,
+	EINVAL: ERRNO_EINVAL,
+	EIO: ERRNO_EIO,
+	EISDIR: ERRNO_EISDIR,
+	ENOENT: ERRNO_ENOENT,
+	ENOSYS: ERRNO_ENOSYS,
+	ENOTDIR: ERRNO_ENOTDIR,
+	ENOTEMPTY: ERRNO_ENOTEMPTY,
+	EPERM: ERRNO_EPERM,
+	EPIPE: ERRNO_EPIPE,
+	ESPIPE: ERRNO_ESPIPE,
+	ESRCH: ERRNO_ESRCH,
+	ETIMEDOUT: ERRNO_ETIMEDOUT,
+};

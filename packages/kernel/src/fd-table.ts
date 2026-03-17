@@ -16,6 +16,7 @@ import {
 	O_WRONLY,
 	O_RDWR,
 	O_APPEND,
+	KernelError,
 } from "./types.js";
 
 let nextDescriptionId = 1;
@@ -132,7 +133,7 @@ export class ProcessFDTable {
 	/** Duplicate an FD — new FD shares the same FileDescription (cursor). */
 	dup(fd: number): number {
 		const entry = this.entries.get(fd);
-		if (!entry) throw new Error(`EBADF: bad file descriptor ${fd}`);
+		if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 		const newFd = this.allocateFd();
 		entry.description.refCount++;
 		this.entries.set(newFd, {
@@ -147,7 +148,7 @@ export class ProcessFDTable {
 	/** Duplicate oldFd to newFd. Closes newFd first if open. */
 	dup2(oldFd: number, newFd: number): void {
 		const entry = this.entries.get(oldFd);
-		if (!entry) throw new Error(`EBADF: bad file descriptor ${oldFd}`);
+		if (!entry) throw new KernelError("EBADF", `bad file descriptor ${oldFd}`);
 		if (oldFd === newFd) return;
 
 		// Close newFd if already open
@@ -166,7 +167,7 @@ export class ProcessFDTable {
 
 	stat(fd: number): FDStat {
 		const entry = this.entries.get(fd);
-		if (!entry) throw new Error(`EBADF: bad file descriptor ${fd}`);
+		if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 		return {
 			filetype: entry.filetype,
 			flags: entry.description.flags,

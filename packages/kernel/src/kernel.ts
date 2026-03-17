@@ -34,6 +34,7 @@ import {
 	SEEK_SET,
 	SEEK_CUR,
 	SEEK_END,
+	KernelError,
 } from "./types.js";
 
 export function createKernel(options: KernelOptions): Kernel {
@@ -153,7 +154,7 @@ class KernelImpl implements Kernel {
 				proc.wait(),
 				new Promise<number>((_, reject) =>
 					setTimeout(
-						() => reject(new Error("ETIMEDOUT: exec timeout")),
+						() => reject(new KernelError("ETIMEDOUT", "exec timeout")),
 						options.timeout,
 					),
 				),
@@ -207,7 +208,7 @@ class KernelImpl implements Kernel {
 	): InternalProcess {
 		const driver = this.commandRegistry.resolve(command);
 		if (!driver) {
-			throw new Error(`ENOENT: command not found: ${command}`);
+			throw new KernelError("ENOENT", `command not found: ${command}`);
 		}
 
 		// Check childProcess permission
@@ -331,7 +332,7 @@ class KernelImpl implements Kernel {
 			fdRead: async (pid, fd, length) => {
 				const table = this.getTable(pid);
 				const entry = table.get(fd);
-				if (!entry) throw new Error(`EBADF: bad file descriptor ${fd}`);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 
 				// Pipe reads route through PipeManager
 				if (this.pipeManager.isPipe(entry.description.id)) {
@@ -351,7 +352,7 @@ class KernelImpl implements Kernel {
 			fdWrite: (pid, fd, data) => {
 				const table = this.getTable(pid);
 				const entry = table.get(fd);
-				if (!entry) throw new Error(`EBADF: bad file descriptor ${fd}`);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 
 				if (this.pipeManager.isPipe(entry.description.id)) {
 					return this.pipeManager.write(entry.description.id, data);
@@ -378,11 +379,11 @@ class KernelImpl implements Kernel {
 			fdSeek: async (pid, fd, offset, whence) => {
 				const table = this.getTable(pid);
 				const entry = table.get(fd);
-				if (!entry) throw new Error(`EBADF: bad file descriptor ${fd}`);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 
 				// Pipes are not seekable
 				if (this.pipeManager.isPipe(entry.description.id)) {
-					throw new Error("ESPIPE: illegal seek");
+					throw new KernelError("ESPIPE", "illegal seek");
 				}
 
 				let newCursor: bigint;
@@ -399,10 +400,10 @@ class KernelImpl implements Kernel {
 						break;
 					}
 					default:
-						throw new Error(`EINVAL: invalid whence ${whence}`);
+						throw new KernelError("EINVAL", `invalid whence ${whence}`);
 				}
 
-				if (newCursor < 0n) throw new Error("EINVAL: negative seek position");
+				if (newCursor < 0n) throw new KernelError("EINVAL", "negative seek position");
 
 				entry.description.cursor = newCursor;
 				return newCursor;
@@ -545,7 +546,7 @@ class KernelImpl implements Kernel {
 
 	private getTable(pid: number): ProcessFDTable {
 		const table = this.fdTableManager.get(pid);
-		if (!table) throw new Error(`ESRCH: no FD table for PID ${pid}`);
+		if (!table) throw new KernelError("ESRCH", `no FD table for PID ${pid}`);
 		return table;
 	}
 

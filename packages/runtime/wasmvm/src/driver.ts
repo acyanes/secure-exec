@@ -32,6 +32,7 @@ import {
   type SyscallRequest,
   type WorkerInitData,
 } from './syscall-rpc.ts';
+import { ERRNO_MAP, ERRNO_EIO } from './wasi-constants.ts';
 
 /**
  * All commands in the WasmVM multicall dispatch table.
@@ -468,7 +469,7 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
           break;
         }
         default:
-          errno = 52; // ENOSYS
+          errno = ERRNO_MAP.ENOSYS; // ENOSYS
       }
     } catch (err) {
       errno = mapErrorToErrno(err);
@@ -494,17 +495,18 @@ class WasmVmRuntimeDriver implements RuntimeDriver {
   }
 }
 
-/** Map error messages to WASI errno codes. */
-function mapErrorToErrno(err: unknown): number {
-  if (!(err instanceof Error)) return 76; // EIO
+/** Map errors to WASI errno codes. Prefers structured .code, falls back to string matching. */
+export function mapErrorToErrno(err: unknown): number {
+  if (!(err instanceof Error)) return ERRNO_EIO;
+
+  // Prefer structured code field (KernelError, VfsError)
+  const code = (err as { code?: string }).code;
+  if (code && code in ERRNO_MAP) return ERRNO_MAP[code];
+
+  // Fallback: match error code in message string
   const msg = err.message;
-  if (msg.includes('EBADF')) return 8;
-  if (msg.includes('ENOENT')) return 44;
-  if (msg.includes('EEXIST')) return 20;
-  if (msg.includes('ENOTDIR')) return 54;
-  if (msg.includes('EISDIR')) return 31;
-  if (msg.includes('EACCES')) return 2;
-  if (msg.includes('ESRCH')) return 71;
-  if (msg.includes('ENOSYS')) return 52;
-  return 76; // EIO fallback
+  for (const [name, errno] of Object.entries(ERRNO_MAP)) {
+    if (msg.includes(name)) return errno;
+  }
+  return ERRNO_EIO;
 }

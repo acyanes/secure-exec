@@ -11,6 +11,7 @@ import type {
 	EnvAccessRequest,
 	PermissionDecision,
 } from "./types.js";
+import { KernelError } from "./types.js";
 import type { VirtualFileSystem } from "./vfs.js";
 
 function checkPermission<T>(
@@ -23,12 +24,8 @@ function checkPermission<T>(
 	if (!decision?.allow) throw errorFactory(request);
 }
 
-function fsError(op: string, path?: string): Error {
-	const err = new Error(
-		`EACCES: permission denied, ${op} '${path ?? ""}'`,
-	);
-	(err as NodeJS.ErrnoException).code = "EACCES";
-	return err;
+function fsError(op: string, path?: string): KernelError {
+	return new KernelError("EACCES", `permission denied, ${op} '${path ?? ""}'`);
 }
 
 /**
@@ -108,9 +105,7 @@ export function checkChildProcess(
 	const request = { command, args, cwd };
 	const decision = permissions.childProcess(request);
 	if (!decision?.allow) {
-		const err = new Error(`EACCES: permission denied, spawn '${command}'`);
-		(err as NodeJS.ErrnoException).code = "EACCES";
-		throw err;
+		throw new KernelError("EACCES", `permission denied, spawn '${command}'`);
 	}
 }
 
