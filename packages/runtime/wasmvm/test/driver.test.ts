@@ -107,6 +107,60 @@ class SimpleVFS {
   async truncate(_path: string, _length: number) {}
 }
 
+/**
+ * Minimal mock RuntimeDriver for testing cross-runtime dispatch.
+ * Configurable per-command exit codes and stdout/stderr output.
+ */
+class MockRuntimeDriver implements RuntimeDriver {
+  name = 'mock';
+  commands: string[];
+  private _configs: Record<string, { exitCode?: number; stdout?: string; stderr?: string }>;
+
+  constructor(commands: string[], configs: Record<string, { exitCode?: number; stdout?: string; stderr?: string }> = {}) {
+    this.commands = commands;
+    this._configs = configs;
+  }
+
+  async init(_kernel: KernelInterface): Promise<void> {}
+
+  spawn(command: string, args: string[], ctx: ProcessContext): DriverProcess {
+    const config = this._configs[command] ?? {};
+    const exitCode = config.exitCode ?? 0;
+
+    let resolveExit!: (code: number) => void;
+    const exitPromise = new Promise<number>((r) => { resolveExit = r; });
+
+    const proc: DriverProcess = {
+      onStdout: null,
+      onStderr: null,
+      onExit: null,
+      writeStdin: () => {},
+      closeStdin: () => {},
+      kill: () => {},
+      wait: () => exitPromise,
+    };
+
+    queueMicrotask(() => {
+      if (config.stdout) {
+        const data = new TextEncoder().encode(config.stdout);
+        ctx.onStdout?.(data);
+        proc.onStdout?.(data);
+      }
+      if (config.stderr) {
+        const data = new TextEncoder().encode(config.stderr);
+        ctx.onStderr?.(data);
+        proc.onStderr?.(data);
+      }
+      resolveExit(exitCode);
+      proc.onExit?.(exitCode);
+    });
+
+    return proc;
+  }
+
+  async dispose(): Promise<void> {}
+}
+
 // -------------------------------------------------------------------------
 // Tests
 // -------------------------------------------------------------------------
@@ -360,22 +414,42 @@ describe('WasmVM RuntimeDriver', () => {
   });
 
   describe.skipIf(!hasWasmBinary)('proc_spawn routing', () => {
-    it('proc_spawn routes through kernel.spawn()', async () => {
-      // This test requires the WASM binary — verifies the critical
-      // architectural requirement that brush-shell proc_spawn calls
-      // route through KernelInterface.spawn() for cross-runtime dispatch
-      const vfs = new SimpleVFS();
-      const kernel = createKernel({ filesystem: vfs as any });
-      const driver = createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH });
-      await kernel.mount(driver);
+    let kernel: Kernel;
 
-      try {
-        const result = await kernel.exec('echo hello');
-        expect(result.stdout.trim()).toBe('hello');
-        expect(result.exitCode).toBe(0);
-      } finally {
-        await kernel.dispose();
-      }
+    afterEach(async () => {
+      await kernel?.dispose();
+    });
+
+    it('proc_spawn routes through kernel.spawn() — spy driver records call', async () => {
+      const vfs = new SimpleVFS();
+      kernel = createKernel({ filesystem: vfs as any });
+
+      // Spy driver records every spawn call for later assertion
+      const spy = { calls: [] as { command: string; args: string[]; callerPid: number }[] };
+      const spyDriver = new MockRuntimeDriver(['spycmd'], {
+        spycmd: { exitCode: 0, stdout: 'spy-output\n' },
+      });
+      const originalSpawn = spyDriver.spawn.bind(spyDriver);
+      spyDriver.spawn = (command: string, args: string[], ctx: ProcessContext): DriverProcess => {
+        spy.calls.push({ command, args: [...args], callerPid: ctx.ppid });
+        return originalSpawn(command, args, ctx);
+      };
+
+      // Mount spy driver first (handles 'spycmd'), then WasmVM (handles shell)
+      await kernel.mount(spyDriver);
+      await kernel.mount(createWasmVmRuntime({ wasmBinaryPath: WASM_BINARY_PATH }));
+
+      // Shell runs 'spycmd arg1 arg2' — brush-shell proc_spawn routes through kernel
+      const proc = kernel.spawn('sh', ['-c', 'spycmd arg1 arg2'], {});
+
+      const code = await proc.wait();
+
+      // Spy proves routing happened — not just that output appeared
+      expect(spy.calls.length).toBe(1);
+      expect(spy.calls[0].command).toBe('spycmd');
+      expect(spy.calls[0].args).toEqual(['arg1', 'arg2']);
+      expect(spy.calls[0].callerPid).toBeGreaterThan(0);
+      expect(code).toBe(0);
     });
   });
 
