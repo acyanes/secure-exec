@@ -39,6 +39,7 @@ import type {
 	BrowserWorkerResponseMessage,
 	SerializedPermissions,
 } from "./worker-protocol.js";
+import { validatePermissionSource } from "./permission-validation.js";
 
 let filesystem: VirtualFileSystem | null = null;
 let networkAdapter: NetworkAdapter | null = null;
@@ -73,6 +74,10 @@ function boundStdioMessage(message: string): string {
 
 function revivePermission(source?: string): ((req: unknown) => { allow: boolean }) | undefined {
 	if (!source) return undefined;
+
+	// Validate source before eval to prevent code injection
+	if (!validatePermissionSource(source)) return undefined;
+
 	try {
 		const fn = new Function(`return (${source});`)();
 		if (typeof fn === "function") return fn;
