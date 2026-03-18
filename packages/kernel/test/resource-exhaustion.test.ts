@@ -7,9 +7,18 @@
 
 import { describe, it, expect } from "vitest";
 import { PipeManager, MAX_PIPE_BUFFER_BYTES } from "../src/pipe-manager.js";
-import { ProcessFDTable, MAX_FDS_PER_PROCESS } from "../src/fd-table.js";
+import { ProcessFDTable, FDTableManager, MAX_FDS_PER_PROCESS, type DescriptionAllocator } from "../src/fd-table.js";
 import { PtyManager, MAX_PTY_BUFFER_BYTES } from "../src/pty.js";
 import { KernelError } from "../src/types.js";
+
+let _testDescId = 1;
+const testAllocDesc: DescriptionAllocator = (path, flags) => ({
+	id: _testDescId++,
+	path,
+	cursor: 0n,
+	flags,
+	refCount: 1,
+});
 
 describe("pipe buffer limit", () => {
 	it("rejects writes that exceed MAX_PIPE_BUFFER_BYTES when no reader", () => {
@@ -65,7 +74,7 @@ describe("pipe buffer limit", () => {
 
 describe("FD exhaustion", () => {
 	it("throws EMFILE when per-process FD limit is reached", () => {
-		const table = new ProcessFDTable();
+		const table = new ProcessFDTable(testAllocDesc);
 
 		// Open FDs up to the limit (3 stdio FDs are not pre-allocated unless initStdio is called)
 		const opened: number[] = [];
@@ -81,7 +90,7 @@ describe("FD exhaustion", () => {
 	});
 
 	it("allows new FDs after closing old ones", () => {
-		const table = new ProcessFDTable();
+		const table = new ProcessFDTable(testAllocDesc);
 
 		// Fill to limit, keep track of first FD
 		let firstFd = -1;
@@ -98,7 +107,7 @@ describe("FD exhaustion", () => {
 	});
 
 	it("dup counts toward FD limit", () => {
-		const table = new ProcessFDTable();
+		const table = new ProcessFDTable(testAllocDesc);
 
 		// Fill to limit - 1, then open one
 		for (let i = 0; i < MAX_FDS_PER_PROCESS - 1; i++) {
@@ -170,5 +179,127 @@ describe("PTY buffer limit", () => {
 		expect(() =>
 			manager.write(slave.description.id, new Uint8Array(1024)),
 		).not.toThrow();
+	});
+});
+
+describe("ID counter isolation", () => {
+	it("100 FD descriptions, 100 pipes, 100 PTYs — all IDs unique, no range overlap", () => {
+		const fdManager = new FDTableManager();
+		const pipeManager = new PipeManager();
+		const ptyManager = new PtyManager();
+
+		const allIds = new Set<number>();
+
+		// Create 100 FD descriptions via fdManager.create (3 stdio descs each)
+		const fdDescIds: number[] = [];
+		for (let i = 0; i < 100; i++) {
+			const table = fdManager.create(i + 1);
+			for (const entry of table) {
+				fdDescIds.push(entry.description.id);
+				allIds.add(entry.description.id);
+			}
+		}
+
+		// Create 100 pipes (2 description IDs each)
+		const pipeDescIds: number[] = [];
+		for (let i = 0; i < 100; i++) {
+			const { read, write } = pipeManager.createPipe();
+			pipeDescIds.push(read.description.id);
+			pipeDescIds.push(write.description.id);
+			allIds.add(read.description.id);
+			allIds.add(write.description.id);
+		}
+
+		// Create 100 PTYs (2 description IDs each)
+		const ptyDescIds: number[] = [];
+		for (let i = 0; i < 100; i++) {
+			const { master, slave } = ptyManager.createPty();
+			ptyDescIds.push(master.description.id);
+			ptyDescIds.push(slave.description.id);
+			allIds.add(master.description.id);
+			allIds.add(slave.description.id);
+		}
+
+		// Total unique IDs should equal sum of all IDs collected
+		const totalCollected = fdDescIds.length + pipeDescIds.length + ptyDescIds.length;
+		expect(allIds.size).toBe(totalCollected);
+
+		// Verify range separation: FD desc < 100_000, pipe desc >= 100_000 < 200_000, PTY desc >= 200_000
+		for (const id of fdDescIds) {
+			expect(id).toBeLessThan(100_000);
+		}
+		for (const id of pipeDescIds) {
+			expect(id).toBeGreaterThanOrEqual(100_000);
+			expect(id).toBeLessThan(200_000);
+		}
+		for (const id of ptyDescIds) {
+			expect(id).toBeGreaterThanOrEqual(200_000);
+		}
+	});
+
+	it("isPipe and isPty return false for FD description IDs and vice versa", () => {
+		const fdManager = new FDTableManager();
+		const pipeManager = new PipeManager();
+		const ptyManager = new PtyManager();
+
+		// Create some of each
+		const table = fdManager.create(1);
+		const fdDescIds: number[] = [];
+		for (const entry of table) {
+			fdDescIds.push(entry.description.id);
+		}
+
+		const { read, write } = pipeManager.createPipe();
+		const pipeDescIds = [read.description.id, write.description.id];
+
+		const { master, slave } = ptyManager.createPty();
+		const ptyDescIds = [master.description.id, slave.description.id];
+
+		// FD description IDs should not be pipes or PTYs
+		for (const id of fdDescIds) {
+			expect(pipeManager.isPipe(id)).toBe(false);
+			expect(ptyManager.isPty(id)).toBe(false);
+		}
+
+		// Pipe description IDs should not be PTYs
+		for (const id of pipeDescIds) {
+			expect(ptyManager.isPty(id)).toBe(false);
+		}
+
+		// PTY description IDs should not be pipes
+		for (const id of ptyDescIds) {
+			expect(pipeManager.isPipe(id)).toBe(false);
+		}
+	});
+
+	it("separate kernel instances have independent ID counters", () => {
+		const fdManager1 = new FDTableManager();
+		const fdManager2 = new FDTableManager();
+
+		const table1 = fdManager1.create(1);
+		const table2 = fdManager2.create(1);
+
+		const ids1: number[] = [];
+		for (const entry of table1) ids1.push(entry.description.id);
+
+		const ids2: number[] = [];
+		for (const entry of table2) ids2.push(entry.description.id);
+
+		// Both instances start from 1 — IDs should overlap (proving per-instance counters)
+		expect(ids1).toEqual(ids2);
+
+		// Same for pipes
+		const pipes1 = new PipeManager();
+		const pipes2 = new PipeManager();
+		const p1 = pipes1.createPipe();
+		const p2 = pipes2.createPipe();
+		expect(p1.read.description.id).toBe(p2.read.description.id);
+
+		// Same for PTYs
+		const ptys1 = new PtyManager();
+		const ptys2 = new PtyManager();
+		const t1 = ptys1.createPty();
+		const t2 = ptys2.createPty();
+		expect(t1.master.description.id).toBe(t2.master.description.id);
 	});
 });

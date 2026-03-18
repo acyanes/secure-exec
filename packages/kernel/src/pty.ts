@@ -58,15 +58,14 @@ export const MAX_PTY_BUFFER_BYTES = 65_536; // 64 KB
 /** Maximum canonical-mode line buffer size (POSIX MAX_CANON). */
 export const MAX_CANON = 4096;
 
-let nextPtyId = 0;
-let nextPtyDescId = 200_000; // High range to avoid FD/pipe ID collisions
-
 export class PtyManager {
 	private ptys: Map<number, PtyState> = new Map();
 	/** Map description ID → pty ID and which end */
 	private descToPty: Map<number, { ptyId: number; end: "master" | "slave" }> = new Map();
 	/** Callback for signal delivery (pgid, signal) */
 	private onSignal: ((pgid: number, signal: number) => void) | null;
+	private nextPtyId = 0;
+	private nextPtyDescId = 200_000; // High range to avoid FD/pipe ID collisions
 
 	constructor(onSignal?: (pgid: number, signal: number) => void) {
 		this.onSignal = onSignal ?? null;
@@ -77,11 +76,11 @@ export class PtyManager {
 	 * one for the master and one for the slave.
 	 */
 	createPty(): { master: PtyEnd; slave: PtyEnd; path: string } {
-		const id = nextPtyId++;
+		const id = this.nextPtyId++;
 		const path = `/dev/pts/${id}`;
 
 		const masterDesc: FileDescription = {
-			id: nextPtyDescId++,
+			id: this.nextPtyDescId++,
 			path: `pty:${id}:master`,
 			cursor: 0n,
 			flags: O_RDWR,
@@ -89,7 +88,7 @@ export class PtyManager {
 		};
 
 		const slaveDesc: FileDescription = {
-			id: nextPtyDescId++,
+			id: this.nextPtyDescId++,
 			path: path,
 			cursor: 0n,
 			flags: O_RDWR,

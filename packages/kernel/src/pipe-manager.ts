@@ -28,23 +28,22 @@ interface PipeState {
 /** Maximum buffered bytes per pipe before writes are rejected (EAGAIN). */
 export const MAX_PIPE_BUFFER_BYTES = 65_536; // 64 KB — matches Linux default
 
-let nextPipeId = 1;
-let nextDescId = 100_000; // High range to avoid FD table collisions
-
 export class PipeManager {
 	private pipes: Map<number, PipeState> = new Map();
 	/** Map description ID → pipe ID for routing reads/writes */
 	private descToPipe: Map<number, { pipeId: number; end: "read" | "write" }> = new Map();
+	private nextPipeId = 1;
+	private nextDescId = 100_000; // High range to avoid FD table collisions
 
 	/**
 	 * Create a pipe. Returns two FileDescriptions:
 	 * one for reading and one for writing.
 	 */
 	createPipe(): { read: PipeEnd; write: PipeEnd } {
-		const id = nextPipeId++;
+		const id = this.nextPipeId++;
 
 		const readDesc: FileDescription = {
-			id: nextDescId++,
+			id: this.nextDescId++,
 			path: `pipe:${id}:read`,
 			cursor: 0n,
 			flags: O_RDONLY,
@@ -52,7 +51,7 @@ export class PipeManager {
 		};
 
 		const writeDesc: FileDescription = {
-			id: nextDescId++,
+			id: this.nextDescId++,
 			path: `pipe:${id}:write`,
 			cursor: 0n,
 			flags: O_WRONLY,
