@@ -1210,3 +1210,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - kernel.exec() routes through 'sh' via spawnInternal — mock 'sh' command for exec tests
   - To test unique output per concurrent exec, override MockRuntimeDriver.spawn to emit call-index-tagged stdout
 ---
+
+## 2026-03-17T22:25 - US-077
+- Strengthened pipe EOF test to use kernel pipe FDs (MockRuntimeDriver + kernelInterface.pipe()) instead of just onStdout callbacks
+- Added WasmVM-gated integration test: WASM echo process with piped stdout → reader verifies data + EOF
+- Removed inline mock driver (replaced with MockRuntimeDriver from kernel/test/helpers)
+- All 5 acceptance criteria verified: crash cleanup, setInterval disposal, pipe FD EOF, double-dispose NodeRuntime, double-dispose PythonRuntime
+- Files changed:
+  - packages/secure-exec/tests/kernel/dispose-behavior.test.ts (rewritten pipe EOF test + new WasmVM pipe EOF test)
+  - prd.json — marked US-077 as passes: true
+- **Learnings for future iterations:**
+  - The original US-077 commit updated scripts/ralph/prd.json not root prd.json — always update the root prd.json
+  - MockRuntimeDriver from kernel/test/helpers.ts is reusable in integration tests (import via relative path)
+  - To test pipe EOF with real runtimes, mount both MockRuntimeDriver (as pipe host) and the real runtime, use ki.spawn with stdoutFd override
+---
