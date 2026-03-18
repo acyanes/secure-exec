@@ -1878,7 +1878,7 @@
         "Tests pass"
       ],
       "priority": 111,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — found during PTY review. pty.ts:~444-447 silently drops echo when output buffer full. User types but sees nothing — violates 'what you type is what you see' principle."
     },
     {
@@ -1895,7 +1895,7 @@
         "Tests pass"
       ],
       "priority": 112,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — found during PTY review. kernel.ts:~691-696 and pty.ts:~274-279 accept any number. Setting foregroundPgid to non-existent group causes ^C to silently fail (caught by try/catch)."
     },
     {
@@ -1911,7 +1911,7 @@
         "Tests pass"
       ],
       "priority": 113,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — test-audit.md M11 flags this as HIGH priority. Current tests only fill buffer to exact limit and check one extra byte. No realistic adversarial patterns."
     },
     {
@@ -1925,7 +1925,7 @@
         "Tests pass"
       ],
       "priority": 114,
-      "passes": false,
+      "passes": true,
       "notes": "LOW — found during PTY review. PTY foregroundPgid goes stale when process exits. Protected by try/catch in kernel constructor wiring but untested."
     },
     {
