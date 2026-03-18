@@ -51,6 +51,7 @@
   "devDependencies": {
     "@mariozechner/pi-coding-agent": "^0.60.0",
     "@types/node": "^22.10.2",
+    "@xterm/headless": "^6.0.0",
     "@vitest/browser": "^2.1.8",
     "playwright": "^1.52.0",
     "tsx": "^4.19.2",

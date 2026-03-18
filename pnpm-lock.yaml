@@ -240,6 +240,9 @@ importers:
       '@vitest/browser':
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.3)(playwright@1.58.2)(typescript@5.9.3)(vitest@2.1.9)
+      '@xterm/headless':
+        specifier: ^6.0.0
+        version: 6.0.0
       playwright:
         specifier: ^1.52.0
         version: 1.58.2
