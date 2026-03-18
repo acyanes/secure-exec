@@ -1741,3 +1741,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - npm flat layout creates all deps directly in node_modules/ as real directories (no symlinks, no hardlinks)
   - package-lock.json lockfileVersion 3 is the current npm format
 ---
+
+## 2026-03-18 - US-091
+- Created peer dependency resolution fixture at packages/secure-exec/tests/projects/peer-deps-pass/
+- Structure: local packages/@peer-test/host (regular dep) and @peer-test/plugin (declares peerDep on host)
+- Plugin internally requires @peer-test/host via peer dependency resolution; entry requires plugin and prints JSON proving both loaded
+- Uses npm with file: deps — npm creates symlinks in node_modules for local packages
+- Fixture passes project-matrix parity test — host Node and sandbox produce identical output
+- Files created: fixture.json, package.json, package-lock.json, packages/host/{package.json,index.js}, packages/plugin/{package.json,index.js}, src/index.js
+- **Learnings for future iterations:**
+  - file: dependencies with peerDependencies work well for testing peer dep resolution without publishing packages
+  - npm creates symlinks for file: deps — the sandbox module resolver handles these correctly
+  - The plugin's require("@peer-test/host") resolves through the peer dep chain to the root node_modules
+---

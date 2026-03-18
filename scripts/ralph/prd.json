@@ -2122,7 +2122,7 @@
         "Typecheck passes",
         "Tests pass"
       ],
-      "passes": false,
+      "passes": true,
       "notes": "Peer deps are resolved differently by each package manager. Tests that the sandbox module resolver handles the hoisting/symlink correctly.",
       "id": "US-091",
       "priority": 126
