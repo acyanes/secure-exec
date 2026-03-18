@@ -1983,3 +1983,23 @@ PRD: ralph/kernel-hardening (46 stories)
   - Use inline http.createServer for one-off error responses rather than modifying the shared mock server
   - AddressInfo type import needed from node:net when using server.address()
 ---
+
+## 2026-03-18 - US-143 (already implemented)
+- readFileRef in bridge-setup.ts already calls assertTextPayloadSize (was assertPayloadByteLength via wrapper)
+- Tests at payload-limits.test.ts lines 396-432 already cover oversized and normal text reads
+- All 15 payload limit tests pass — marked as done
+---
+
+## 2026-03-18 - US-144
+- Blocked dangerous Web APIs (XMLHttpRequest, WebSocket, importScripts, indexedDB, caches, BroadcastChannel) in browser worker via non-configurable getter traps that throw ReferenceError
+- Saved real postMessage reference before hardening; internal postResponse/postStdio use saved reference
+- Blocked self.postMessage from sandbox code via getter trap (TypeError)
+- Made self.onmessage non-writable, non-configurable after bridge setup
+- Added 5 tests: fetch blocked, importScripts blocked, WebSocket blocked, onmessage write blocked, bridge APIs still work
+- Files changed: packages/secure-exec-browser/src/worker.ts, packages/secure-exec/tests/runtime-driver/browser/runtime.test.ts
+- **Learnings for future iterations:**
+  - Browser worker tests skip in Node.js (IS_BROWSER_ENV check) — tests only run in browser environments
+  - `self` in Web Worker is typed as `Window & typeof globalThis` — cast through `unknown` for `Record<string, unknown>` operations
+  - Internal functions using self.postMessage must capture the reference before hardening blocks it
+  - Getter traps on non-configurable properties are permanent — they can't be reconfigured back
+---
