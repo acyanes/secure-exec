@@ -67,10 +67,10 @@ Unexpected issues, workarounds, and integration friction encountered during secu
 - **THEN** its log entry MUST be updated to indicate resolution and summarize the fix
 
 ### Requirement: Run Bridge Type Conformance Tests After Bridge Changes
-Any change to files under `packages/secure-exec/src/bridge` MUST run bridge type conformance checks via `pnpm run check-types:test` in `packages/secure-exec` before completion.
+Any change to files under `packages/secure-exec-core/src/bridge` MUST run bridge type conformance checks via `pnpm run check-types:test` in `packages/secure-exec` before completion.
 
 #### Scenario: Bridge source file is modified
-- **WHEN** a commit modifies one or more files in `packages/secure-exec/src/bridge`
+- **WHEN** a commit modifies one or more files in `packages/secure-exec-core/src/bridge`
 - **THEN** `pnpm run check-types:test` MUST be executed and failures MUST be addressed before the change is considered complete
 
 ### Requirement: Compatibility Project Matrix Uses Black-Box Node Fixtures
@@ -220,16 +220,16 @@ Changes to runtime or bridge filesystem metadata/rename behavior SHALL update co
 - **WHEN** a change modifies `stat`, `exists`, typed `readdir`, or rename semantics in secure-exec
 - **THEN** the compatibility project-matrix MUST include fixture coverage that exercises the changed behavior under host Node and secure-exec comparison
 
-### Requirement: Governance References Use Canonical Secure-Exec Naming
-Governance artifacts that reference runtime package imports or runtime source paths SHALL use `secure-exec` and `packages/secure-exec` as the canonical identifiers.
+### Requirement: Governance References Use Canonical Secure-Exec Package Family Naming
+Governance artifacts that reference runtime package imports SHALL use the `@secure-exec/*` scoped package names (`@secure-exec/core`, `@secure-exec/node`, `@secure-exec/browser`, `@secure-exec/python`) or the `secure-exec` barrel. Source paths SHALL use the corresponding workspace directories (`packages/secure-exec-core`, `packages/secure-exec-node`, `packages/secure-exec-browser`, `packages/secure-exec-python`, `packages/secure-exec`).
 
 #### Scenario: Governance guidance references runtime package imports
 - **WHEN** a governance document or spec requirement describes runtime package imports
-- **THEN** it MUST use `secure-exec` rather than the legacy package name
+- **THEN** it MUST use the appropriate `@secure-exec/*` scoped package name or the `secure-exec` barrel
 
 #### Scenario: Governance guidance references runtime source paths
 - **WHEN** a governance document or spec requirement describes runtime source directories
-- **THEN** it MUST use `packages/secure-exec` rather than the legacy package path
+- **THEN** it MUST use the appropriate `packages/secure-exec-*` workspace path for the component being referenced
 
 ### Requirement: Module-Access Boundary Changes MUST Update Security and Friction Documentation
 Any change that introduces or modifies driver-managed host module projection or overlay boundaries MUST update compatibility/friction and security-model documentation in the same change.
@@ -261,7 +261,7 @@ Any change that introduces or modifies runtime log-capture defaults or hook-base
 Any change that modifies runtime-driver behavior or runtime orchestration contracts MUST run shared integration suites against both node and browser runtime-driver targets.
 
 #### Scenario: Runtime/driver implementation changes trigger cross-target validation
-- **WHEN** a change modifies runtime contracts or driver behavior under `packages/secure-exec/src/index.ts`, `src/runtime-driver.ts`, `src/node/**`, or `src/browser/**`
+- **WHEN** a change modifies runtime contracts or driver behavior under `packages/secure-exec-core/src/`, `packages/secure-exec-node/src/`, or `packages/secure-exec-browser/src/`
 - **THEN** the change MUST execute shared integration suites for both node and browser targets before completion
 
 #### Scenario: Shared suites are reused between targets

@@ -18,8 +18,26 @@
                │              │              │
           WasmVM          Node           Python
           Runtime         Runtime        Runtime
-   packages/runtime/  packages/secure-exec/  packages/secure-exec/
-       wasmvm/         src/node/             src/python/
+   packages/runtime/  packages/         packages/
+       wasmvm/         secure-exec-node/  secure-exec-python/
+
+   @secure-exec/core        packages/secure-exec-core/
+     Shared types, utilities, bridge, NodeRuntime/PythonRuntime classes,
+     isolate-runtime source, build scripts
+
+   @secure-exec/node        packages/secure-exec-node/
+     V8 isolate execution driver, bridge-loader, module-access overlay,
+     createNodeDriver, createNodeRuntimeDriverFactory
+
+   @secure-exec/browser     packages/secure-exec-browser/
+     Web Worker runtime driver, createBrowserDriver,
+     createBrowserRuntimeDriverFactory
+
+   @secure-exec/python      packages/secure-exec-python/
+     Pyodide runtime driver, createPyodideRuntimeDriverFactory
+
+   secure-exec               packages/secure-exec/
+     Barrel re-export layer — re-exports all of the above
 ```
 
 ## Kernel
@@ -85,13 +103,13 @@ BusyBox-style WASM binary containing 90+ Unix commands (brush-shell, coreutils, 
 - Worker-based process model with SharedArrayBuffer + Atomics synchronization
 - Ring buffers for WASM-to-WASM pipeline optimization
 
-## Existing Runtime Architecture (packages/secure-exec)
+## Existing Runtime Architecture
 
-The existing secure-exec package retains its full architecture. The kernel is additive.
+The runtime is split across `@secure-exec/core` (shared types and runtime classes), `@secure-exec/node`, `@secure-exec/browser`, and `@secure-exec/python`. The `secure-exec` barrel package re-exports everything. The kernel is additive.
 
 ### NodeRuntime / PythonRuntime
 
-`src/runtime.ts`, `src/python-runtime.ts`
+`packages/secure-exec-core/src/runtime.ts`, `packages/secure-exec-core/src/python-runtime.ts`
 
 Public APIs. Thin facades that delegate orchestration to runtime drivers.
 
@@ -115,7 +133,7 @@ Optional companion package for sandboxed TypeScript compiler work (`@secure-exec
 
 ### SystemDriver
 
-`src/runtime-driver.ts` (re-exported from `src/types.ts`)
+`packages/secure-exec-core/src/types.ts`
 
 Config object that bundles what the sandbox can access. Deny-by-default.
 
@@ -132,7 +150,7 @@ Factory abstraction for constructing runtime drivers from normalized runtime opt
 
 #### createNodeDriver()
 
-`src/node/driver.ts`
+`packages/secure-exec-node/src/driver.ts`
 
 Factory that builds a `SystemDriver` with Node-native adapters.
 
@@ -141,7 +159,7 @@ Factory that builds a `SystemDriver` with Node-native adapters.
 
 #### createNodeRuntimeDriverFactory()
 
-`src/node/driver.ts`
+`packages/secure-exec-node/src/driver.ts`
 
 Factory that builds a Node-backed `RuntimeDriverFactory`.
 
@@ -150,7 +168,7 @@ Factory that builds a Node-backed `RuntimeDriverFactory`.
 
 #### createBrowserDriver()
 
-`src/browser/driver.ts`
+`packages/secure-exec-browser/src/driver.ts`
 
 Factory that builds a browser `SystemDriver` with browser-native adapters.
 
@@ -160,7 +178,7 @@ Factory that builds a browser `SystemDriver` with browser-native adapters.
 
 #### createBrowserRuntimeDriverFactory()
 
-`src/browser/runtime-driver.ts`
+`packages/secure-exec-browser/src/runtime-driver.ts`
 
 Factory that builds a browser-backed `RuntimeDriverFactory`.
 
@@ -170,7 +188,7 @@ Factory that builds a browser-backed `RuntimeDriverFactory`.
 
 #### createPyodideRuntimeDriverFactory()
 
-`src/python/driver.ts`
+`packages/secure-exec-python/src/driver.ts`
 
 Factory that builds a Python-backed `PythonRuntimeDriverFactory`.
 
@@ -179,7 +197,7 @@ Factory that builds a Python-backed `PythonRuntimeDriverFactory`.
 
 ### NodeExecutionDriver
 
-`src/node/execution-driver.ts`
+`packages/secure-exec-node/src/execution-driver.ts`
 
 The engine. Owns the `isolated-vm` isolate and bridges host capabilities in.
 
@@ -190,7 +208,7 @@ The engine. Owns the `isolated-vm` isolate and bridges host capabilities in.
 
 ### BrowserRuntimeDriver
 
-`src/browser/runtime-driver.ts`
+`packages/secure-exec-browser/src/runtime-driver.ts`
 
 Browser execution driver that owns worker lifecycle and message marshalling.
 
@@ -201,7 +219,7 @@ Browser execution driver that owns worker lifecycle and message marshalling.
 
 ### Browser Worker Runtime
 
-`src/browser/worker.ts`
+`packages/secure-exec-browser/src/worker.ts`
 
 Worker-side runtime implementation used by the browser runtime driver.
 
@@ -212,7 +230,7 @@ Worker-side runtime implementation used by the browser runtime driver.
 
 ### PyodideRuntimeDriver
 
-`src/python/driver.ts`
+`packages/secure-exec-python/src/driver.ts`
 
 Python execution driver that owns a Node worker running Pyodide.
 
@@ -224,7 +242,7 @@ Python execution driver that owns a Node worker running Pyodide.
 
 ### ModuleAccessFileSystem
 
-`src/node/module-access.ts`
+`packages/secure-exec-node/src/module-access.ts`
 
 Filesystem overlay that makes host `node_modules` available read-only at `/root/node_modules`.
 
@@ -234,7 +252,7 @@ Filesystem overlay that makes host `node_modules` available read-only at `/root/
 
 ### Permissions
 
-`src/shared/permissions.ts`
+`packages/secure-exec-core/src/shared/permissions.ts`
 
 Wraps each adapter with allow/deny checks before calls reach the host.
 

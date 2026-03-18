@@ -234,7 +234,7 @@ The Node runtime MUST validate isolate-originated serialized payload size before
 - **THEN** the runtime MUST fail the operation with a deterministic overflow error and MUST NOT call `JSON.parse` on that payload
 
 #### Scenario: All isolate-originated parse entry points are guarded
-- **WHEN** host runtime code in `packages/secure-exec/src/index.ts` parses isolate-originated JSON payloads for bridged operations
+- **WHEN** host runtime code in the Node execution driver (`packages/secure-exec-node/src/execution-driver.ts`) parses isolate-originated JSON payloads for bridged operations
 - **THEN** each parse entry point MUST apply the same pre-parse size validation before invoking `JSON.parse`
 
 #### Scenario: In-limit serialized payload preserves existing behavior
@@ -316,16 +316,20 @@ Runtime rename behavior MUST delegate to the active driver `rename` operation an
 - **WHEN** the active driver cannot provide atomic rename semantics
 - **THEN** the runtime MUST expose deterministic documented behavior for that driver and MUST NOT silently perform copy-write-delete emulation as if it were atomic
 
-### Requirement: Runtime Package Identity Uses Secure-Exec
-The runtime SHALL publish its execution interface from the `secure-exec` package name, and runtime implementation sources SHALL reside under `packages/secure-exec` in the workspace.
+### Requirement: Runtime Package Identity Uses Secure-Exec Package Family
+The runtime SHALL publish its execution interface through the `@secure-exec/*` scoped packages (`@secure-exec/core`, `@secure-exec/node`, `@secure-exec/browser`, `@secure-exec/python`). The `secure-exec` barrel package SHALL re-export all public APIs for backward compatibility.
 
-#### Scenario: Consumers import runtime APIs from secure-exec
+#### Scenario: Consumers import runtime APIs from scoped packages
 - **WHEN** a Node or browser consumer imports runtime APIs
-- **THEN** the documented and supported package specifier MUST be `secure-exec`
+- **THEN** the documented and supported package specifiers MUST be the scoped `@secure-exec/*` packages, with `secure-exec` as a supported backward-compatible alternative
 
-#### Scenario: Runtime source path is canonicalized to secure-exec
+#### Scenario: Runtime source is split across focused packages
 - **WHEN** contributors update runtime implementation files
-- **THEN** those files MUST live under `packages/secure-exec` rather than the legacy runtime package path
+- **THEN** shared types and runtime classes MUST live under `packages/secure-exec-core`, Node driver code under `packages/secure-exec-node`, browser driver code under `packages/secure-exec-browser`, Python driver code under `packages/secure-exec-python`, and the barrel re-export layer under `packages/secure-exec`
+
+#### Scenario: Barrel package contains no source logic
+- **WHEN** contributors inspect `packages/secure-exec/src/`
+- **THEN** all files MUST be re-export modules that delegate to `@secure-exec/*` scoped packages, with no original implementation logic
 
 ### Requirement: Projected Modules MUST Exclude Native Addons
 Module projection and overlay-based loading SHALL reject native addon artifacts (`.node`) so projected dependency execution remains within supported sandbox module formats.
@@ -335,7 +339,7 @@ Module projection and overlay-based loading SHALL reject native addon artifacts 
 - **THEN** runtime MUST fail deterministically and MUST NOT execute native addon code
 
 ### Requirement: Isolate-Executed Bootstrap Sources MUST Be Static TypeScript Modules
-Any source code evaluated inside the isolate for runtime/bootstrap setup MUST originate from static files under `packages/secure-exec/isolate-runtime/src/` and MUST be tracked as normal TypeScript source with inject entrypoints rooted in `packages/secure-exec/isolate-runtime/src/inject/`.
+Any source code evaluated inside the isolate for runtime/bootstrap setup MUST originate from static files under `packages/secure-exec-core/isolate-runtime/src/` and MUST be tracked as normal TypeScript source with inject entrypoints rooted in `packages/secure-exec-core/isolate-runtime/src/inject/`.
 
 #### Scenario: Runtime injects require and bridge bootstrap code
 - **WHEN** secure-exec prepares isolate bootstrap code for `require` setup, bridge setup, or related runtime helpers
@@ -343,22 +347,22 @@ Any source code evaluated inside the isolate for runtime/bootstrap setup MUST or
 
 #### Scenario: New isolate injection path is introduced
 - **WHEN** a change adds a new host-to-isolate code injection path
-- **THEN** the injected code MUST be added as a static `.ts` file under `packages/secure-exec/isolate-runtime/src/inject/` in the same change
+- **THEN** the injected code MUST be added as a static `.ts` file under `packages/secure-exec-core/isolate-runtime/src/inject/` in the same change
 
 #### Scenario: Existing template-generated bootstrap helper is migrated
 - **WHEN** secure-exec migrates helpers such as `getRequireSetupCode`, `getBridgeWithConfig`, or `createInitialBridgeGlobalsCode`
 - **THEN** the executable isolate source for those helpers MUST come from static isolate-runtime files rather than template-literal code builders in host runtime modules
 
 ### Requirement: Isolate-Runtime Compilation MUST Be a Build Prerequisite
-The secure-exec package build MUST execute isolate-runtime compilation before producing final runtime artifacts, and build orchestration MUST treat isolate-runtime compilation and isolate-runtime typecheck as explicit validation dependencies.
+The `@secure-exec/core` package build MUST execute isolate-runtime compilation before producing final runtime artifacts, and build orchestration MUST treat isolate-runtime compilation and isolate-runtime typecheck as explicit validation dependencies.
 
 #### Scenario: Package build runs with clean outputs
-- **WHEN** `packages/secure-exec` is built from a clean workspace
+- **WHEN** `packages/secure-exec-core` is built from a clean workspace
 - **THEN** the build MUST run a dedicated isolate-runtime compile step before final package build output is produced
 
-#### Scenario: Turbo build graph resolves secure-exec build dependencies
-- **WHEN** turbo runs `build` for secure-exec
-- **THEN** the task graph MUST enforce `build:isolate-runtime` as a dependency of secure-exec `build`
+#### Scenario: Turbo build graph resolves core build dependencies
+- **WHEN** turbo runs `build` for `@secure-exec/core`
+- **THEN** the task graph MUST enforce `build:isolate-runtime` as a dependency of the core `build`
 
 #### Scenario: Isolate runtime source typing regresses
 - **WHEN** isolate-runtime inject/common source introduces type errors against the declared runtime global contracts

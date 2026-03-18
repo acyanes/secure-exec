@@ -6,8 +6,23 @@ icon: "rocket"
 
 <Steps>
   <Step title="Install">
+    The umbrella package re-exports every runtime target:
+
     ```bash
     pnpm add secure-exec
+    ```
+
+    Or install only the target you need:
+
+    ```bash
+    # Node.js V8 isolate runtime
+    pnpm add @secure-exec/node
+
+    # Browser Web Worker runtime
+    pnpm add @secure-exec/browser
+
+    # Python (Pyodide) runtime
+    pnpm add @secure-exec/python
     ```
   </Step>
 
@@ -21,7 +36,7 @@ icon: "rocket"
           NodeRuntime,
           createNodeDriver,
           createNodeRuntimeDriverFactory,
-        } from "secure-exec";
+        } from "@secure-exec/node";
 
         const runtime = new NodeRuntime({
           systemDriver: createNodeDriver(),
@@ -35,7 +50,7 @@ icon: "rocket"
           NodeRuntime,
           createBrowserDriver,
           createBrowserRuntimeDriverFactory,
-        } from "secure-exec/browser";
+        } from "@secure-exec/browser";
 
         const runtime = new NodeRuntime({
           systemDriver: await createBrowserDriver({ filesystem: "memory" }),
@@ -43,7 +58,23 @@ icon: "rocket"
         });
         ```
       </Tab>
+      <Tab title="Python">
+        ```ts
+        import { PythonRuntime } from "@secure-exec/python";
+        import { createNodeDriver } from "@secure-exec/node";
+        import { createPyodideRuntimeDriverFactory } from "@secure-exec/python";
+
+        const runtime = new PythonRuntime({
+          systemDriver: createNodeDriver(),
+          runtimeDriverFactory: createPyodideRuntimeDriverFactory(),
+        });
+        ```
+      </Tab>
     </Tabs>
+
+    <Note>
+      All exports are also available from `"secure-exec"` for backward compatibility.
+    </Note>
   </Step>
 
   <Step title="Run code">

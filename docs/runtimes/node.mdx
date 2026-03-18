@@ -15,13 +15,17 @@ import {
   NodeRuntime,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "secure-exec";
+} from "@secure-exec/node";
 
 const runtime = new NodeRuntime({
   systemDriver: createNodeDriver(),
   runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 });
 ```
+
+<Note>
+  These exports are also available from `"secure-exec"` for backward compatibility.
+</Note>
 
 ## exec vs run
 
@@ -80,11 +84,11 @@ TypeScript support lives in the companion `@secure-exec/typescript` package. It 
 Shared setup:
 
 ```ts
+import { createInMemoryFileSystem } from "@secure-exec/core";
 import {
-  createInMemoryFileSystem,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
-} from "secure-exec";
+} from "@secure-exec/node";
 import { createTypeScriptTools } from "@secure-exec/typescript";
 
 const filesystem = createInMemoryFileSystem();
@@ -147,7 +151,7 @@ console.log(result.diagnostics[0]?.message);
 Use `compileSource(...)` when you want to transpile one TypeScript source string and then hand the emitted JavaScript to `NodeRuntime`:
 
 ```ts
-import { NodeRuntime } from "secure-exec";
+import { NodeRuntime } from "@secure-exec/node";
 
 const compiled = await ts.compileSource({
   filePath: "/root/example.ts",

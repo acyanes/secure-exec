@@ -11,17 +11,18 @@ icon: "python"
 A `PythonRuntime` requires a [system driver](/system-drivers/overview) and a Pyodide runtime driver factory.
 
 ```ts
-import {
-  PythonRuntime,
-  createNodeDriver,
-  createPyodideRuntimeDriverFactory,
-} from "secure-exec";
+import { PythonRuntime, createPyodideRuntimeDriverFactory } from "@secure-exec/python";
+import { createNodeDriver } from "@secure-exec/node";
 
 const runtime = new PythonRuntime({
   systemDriver: createNodeDriver(),
   runtimeDriverFactory: createPyodideRuntimeDriverFactory(),
 });
 ```
+
+<Note>
+  These exports are also available from `"secure-exec"` for backward compatibility.
+</Note>
 
 ## exec vs run
 

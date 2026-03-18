@@ -4,9 +4,26 @@ description: Complete reference for all secure-exec exports.
 icon: "rectangle-code"
 ---
 
+## Package Structure
+
+secure-exec is split into focused packages. The umbrella `secure-exec` package re-exports everything for convenience.
+
+| Package | Contents |
+|---|---|
+| `@secure-exec/core` | Shared types, utilities, bridge guest code, `NodeRuntime`, `PythonRuntime` classes |
+| `@secure-exec/node` | Node.js V8 isolate runtime driver, `createNodeDriver`, `createNodeRuntimeDriverFactory` |
+| `@secure-exec/browser` | Browser Web Worker runtime driver, `createBrowserDriver`, `createBrowserRuntimeDriverFactory` |
+| `@secure-exec/python` | Pyodide runtime driver, `createPyodideRuntimeDriverFactory` |
+| `@secure-exec/typescript` | Sandboxed TypeScript compiler tools |
+| `secure-exec` | Umbrella barrel — re-exports all of the above |
+
+---
+
 ## Runtimes
 
 ### `NodeRuntime`
+
+<sub>Package: `@secure-exec/core` (also re-exported from `secure-exec`)</sub>
 
 Sandboxed JavaScript runtime using a V8 isolate.
 
@@ -71,6 +88,8 @@ createTypeScriptTools(options: TypeScriptToolsOptions)
 
 ### `PythonRuntime`
 
+<sub>Package: `@secure-exec/core` (also re-exported from `secure-exec`)</sub>
+
 Sandboxed Python runtime using Pyodide in a Worker thread.
 
 ```ts
@@ -101,6 +120,8 @@ new PythonRuntime(options: PythonRuntimeOptions)
 
 ### `createNodeDriver(options?)`
 
+<sub>Package: `@secure-exec/node` (also re-exported from `secure-exec`)</sub>
+
 Creates a system driver for Node.js environments.
 
 ```ts
@@ -122,6 +143,8 @@ createNodeDriver(options?: NodeDriverOptions): SystemDriver
 
 ### `createBrowserDriver(options?)`
 
+<sub>Package: `@secure-exec/browser` (also re-exported from `secure-exec`)</sub>
+
 Creates a system driver for browser environments. Returns a promise because OPFS initialization is async.
 
 ```ts
@@ -142,6 +165,8 @@ createBrowserDriver(options?: BrowserDriverOptions): Promise<SystemDriver>
 
 ### `createNodeRuntimeDriverFactory(options?)`
 
+<sub>Package: `@secure-exec/node` (also re-exported from `secure-exec`)</sub>
+
 Creates a factory for Node.js V8 isolate runtime drivers.
 
 ```ts
@@ -152,6 +177,8 @@ createNodeRuntimeDriverFactory(options?: {
 
 ### `createBrowserRuntimeDriverFactory(options?)`
 
+<sub>Package: `@secure-exec/browser` (also re-exported from `secure-exec`)</sub>
+
 Creates a factory for browser Worker-based runtime drivers.
 
 ```ts
@@ -161,6 +188,8 @@ createBrowserRuntimeDriverFactory(options?: {
 ```
 
 ### `createPyodideRuntimeDriverFactory()`
+
+<sub>Package: `@secure-exec/python` (also re-exported from `secure-exec`)</sub>
 
 Creates a factory for Pyodide-based Python runtime drivers.
 
@@ -174,6 +203,8 @@ createPyodideRuntimeDriverFactory(): PythonRuntimeDriverFactory
 
 ### `createInMemoryFileSystem()`
 
+<sub>Package: `@secure-exec/core` (also re-exported from `secure-exec`)</sub>
+
 Creates a fully in-memory filesystem backed by Maps.
 
 ```ts
@@ -181,6 +212,8 @@ createInMemoryFileSystem(): InMemoryFileSystem
 ```
 
 ### `createOpfsFileSystem()`
+
+<sub>Package: `@secure-exec/browser` (also re-exported from `secure-exec`)</sub>
 
 Creates an OPFS-backed filesystem (browser only).
 
@@ -219,6 +252,8 @@ new NodeFileSystem()
 
 ### `createDefaultNetworkAdapter()`
 
+<sub>Package: `@secure-exec/node` (also re-exported from `secure-exec`)</sub>
+
 Creates a network adapter with real fetch, DNS, and HTTP support (Node.js only).
 
 ```ts
@@ -226,6 +261,8 @@ createDefaultNetworkAdapter(): NetworkAdapter
 ```
 
 ### `createBrowserNetworkAdapter()`
+
+<sub>Package: `@secure-exec/browser` (also re-exported from `secure-exec`)</sub>
 
 Creates a fetch-only network adapter for browser environments. No DNS support.
 
@@ -246,6 +283,8 @@ createBrowserNetworkAdapter(): NetworkAdapter
 ---
 
 ## Permissions
+
+<sub>Package: `@secure-exec/core` (also re-exported from `secure-exec`)</sub>
 
 ### Pre-built helpers
 
