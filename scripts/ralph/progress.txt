@@ -1628,3 +1628,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - `build:isolate-runtime` generates the `.ts` source, but `@secure-exec/core` tsc must run to compile to dist `.js` — tests resolve through compiled dist, not raw .ts
   - Date constructor replacement: must use Object.defineProperty for prototype (direct assignment fails with TS2540), forward parse/UTC, lock Date.now on replacement too
 ---
+
+## 2026-03-18 - US-112
+- Added ownership tracking to httpServerClose in bridge-setup.ts
+- Per-context `ownedHttpServers` Set tracks server IDs created via httpServerListen
+- httpServerClose now rejects with error if serverId not in the owned set
+- Changed close ref from async to sync-throw + promise-return to avoid ivm unhandled rejection
+- Files changed: packages/secure-exec-node/src/bridge-setup.ts, packages/secure-exec/tests/runtime-driver/node/bridge-hardening.test.ts
+- **Learnings for future iterations:**
+  - ivm async Reference functions that throw create unhandled rejections on the host even when sandbox catches them — use synchronous throw + `.then()` pattern instead of async/await for validation errors
+  - Host bridge global names use `_` prefix convention (e.g. `_networkHttpServerCloseRaw`), classified as "hardened" (non-writable, non-configurable) but still readable by sandbox code
+  - Per-context ownership tracking pattern: create a local Set in the bridge-setup closure, add on create, check on close/delete, clean up on success
+---
