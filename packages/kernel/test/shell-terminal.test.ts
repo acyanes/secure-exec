@@ -273,3 +273,110 @@ describe("shell-terminal", () => {
 		expect(harness.screenshotTrimmed()).toBe(screenAfterNoecho);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// readPump lifecycle tests — verify pump is tracked, exits on shell exit,
+// errors are propagated, and wait() drains before resolving.
+// ---------------------------------------------------------------------------
+
+describe("openShell readPump lifecycle", () => {
+	it("wait() resolves only after pump finishes delivering data", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+
+		const chunks: Uint8Array[] = [];
+		const shell = kernel.openShell();
+
+		shell.onData = (data) => {
+			chunks.push(data);
+		};
+
+		// Wait for prompt
+		await new Promise((r) => setTimeout(r, 100));
+
+		// Exit shell — ^D
+		shell.write("\x04");
+		const exitCode = await shell.wait();
+
+		expect(exitCode).toBe(0);
+		// Pump delivered at least the prompt before wait() resolved
+		const text = new TextDecoder().decode(
+			new Uint8Array(chunks.reduce((acc, c) => [...acc, ...c], [] as number[])),
+		);
+		expect(text).toContain("$ ");
+	});
+
+	it("pump exits promptly when shell is killed", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+
+		const shell = kernel.openShell();
+		shell.onData = () => {};
+
+		// Wait for shell to be ready
+		await new Promise((r) => setTimeout(r, 50));
+
+		// Kill the shell
+		shell.kill();
+		const exitCode = await Promise.race([
+			shell.wait(),
+			new Promise<number>((_, rej) => setTimeout(() => rej(new Error("wait() hung")), 2000)),
+		]);
+
+		// Shell killed with SIGTERM → 128 + 15
+		expect(exitCode).toBe(128 + 15);
+	});
+
+	it("onData callback error is logged, pump continues for remaining data", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+
+		const errors: unknown[] = [];
+		const origError = console.error;
+		console.error = (...args: unknown[]) => {
+			if (typeof args[0] === "string" && args[0].includes("onData callback error")) {
+				errors.push(args[1]);
+			}
+		};
+
+		try {
+			const shell = kernel.openShell();
+			let thrown = false;
+			shell.onData = () => {
+				if (!thrown) {
+					thrown = true;
+					throw new Error("callback boom");
+				}
+			};
+
+			// Wait for prompt to be delivered (which triggers the error)
+			await new Promise((r) => setTimeout(r, 100));
+
+			// Shell should still be alive — send exit
+			shell.write("\x04");
+			const exitCode = await shell.wait();
+			expect(exitCode).toBe(0);
+
+			// Error was logged, not silently swallowed
+			expect(errors.length).toBeGreaterThanOrEqual(1);
+			expect((errors[0] as Error).message).toBe("callback boom");
+		} finally {
+			console.error = origError;
+		}
+	});
+
+	it("multiple wait() calls return the same exit code", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+
+		const shell = kernel.openShell();
+		shell.onData = () => {};
+
+		await new Promise((r) => setTimeout(r, 50));
+
+		shell.write("\x04");
+		const [code1, code2] = await Promise.all([shell.wait(), shell.wait()]);
+		expect(code1).toBe(0);
+		expect(code2).toBe(0);
+	});
+});

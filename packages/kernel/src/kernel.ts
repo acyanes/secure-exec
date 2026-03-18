@@ -238,24 +238,46 @@ class KernelImpl implements Kernel {
 		this.processTable.setpgid(proc.pid, proc.pid);
 		this.ptyManager.setForegroundPgid(masterDescId, proc.pid);
 
+		// Close controller's copy of slave FD (child inherited its own copy via fork).
+		// Without this, slave refCount stays >0 after shell exits, preventing EOF on master.
+		const slaveEntry = controllerTable.get(slaveFd);
+		const slaveDescId = slaveEntry!.description.id;
+		controllerTable.close(slaveFd);
+		if (slaveEntry!.description.refCount <= 0) {
+			this.ptyManager.close(slaveDescId);
+		}
+
 		// Start read pump: master reads → onData callback
-		let onDataCallback: ((data: Uint8Array) => void) | null = null;
-		const readPump = async () => {
+		// Use object wrapper so TypeScript doesn't narrow to null in the async closure
+		const pump = { onData: null as ((data: Uint8Array) => void) | null, exited: false };
+
+		const pumpPromise = (async () => {
 			try {
-				while (true) {
+				while (!pump.exited) {
 					const data = await this.ptyManager.read(masterDescId, 4096);
 					if (!data || data.length === 0) break;
-					onDataCallback?.(data);
+					try {
+						pump.onData?.(data);
+					} catch (cbErr) {
+						// Propagate callback errors — don't silently swallow
+						console.error("openShell readPump: onData callback error:", cbErr);
+					}
 				}
-			} catch {
-				// Master closed or PTY gone
+			} catch (err) {
+				// Master closed or PTY gone — expected when shell exits
+				if (pump.exited) return;
+				console.error("openShell readPump: PTY read error:", err);
 			}
-		};
-		readPump();
+		})();
 
-		// Clean up controller PID's FD table (incl. PTY master) when shell exits
-		proc.wait().then(() => {
+		// wait() resolves after both shell exit AND pump drain
+		const waitPromise = proc.wait().then(async (exitCode) => {
+			pump.exited = true;
+			// Wait for pump to finish delivering remaining data
+			await pumpPromise;
+			// Clean up controller PID's FD table (incl. PTY master)
 			this.cleanupProcessFDs(controllerPid);
+			return exitCode;
 		});
 
 		return {
@@ -266,8 +288,8 @@ class KernelImpl implements Kernel {
 					: data;
 				this.ptyManager.write(masterDescId, bytes);
 			},
-			get onData() { return onDataCallback; },
-			set onData(fn) { onDataCallback = fn; },
+			get onData() { return pump.onData; },
+			set onData(fn) { pump.onData = fn; },
 			resize: (_cols, _rows) => {
 				const fgPgid = this.ptyManager.getForegroundPgid(masterDescId);
 				if (fgPgid > 0) {
@@ -277,7 +299,7 @@ class KernelImpl implements Kernel {
 			kill: (signal) => {
 				proc.kill(signal ?? SIGTERM);
 			},
-			wait: () => proc.wait(),
+			wait: () => waitPromise,
 		};
 	}
 
