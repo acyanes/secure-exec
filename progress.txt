@@ -1091,3 +1091,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - Timeout-based fallback values in tests are a common pattern for weak assertions — if the fallback satisfies the assertion, the test passes even when the handler never fires
   - Always verify error.code (structured) rather than string-matching on error.message for KernelError assertions
 ---
+
+## 2026-03-17 - US-066
+- Tightened resource budget assertions and fixed negative-only security tests
+- Files changed:
+  - packages/secure-exec/tests/runtime-driver/node/resource-budgets.test.ts — maxOutputBytes assertions now use budget + 32 overhead (was 2x budget); maxBridgeCalls error count now exact (totalCalls - budget)
+  - packages/runtime/python/test/driver.test.ts — added positive `expect(stdout).toContain('blocked:')` alongside negative assertion
+  - packages/secure-exec/tests/kernel/bridge-child-process.test.ts — child_process escape test now uses `cat /etc/hostname` which produces different output in sandbox vs host
+  - packages/runtime/wasmvm/test/driver.test.ts — pipe FD cleanup test now asserts fdTableManager.size returns to pre-spawn count; switched from `cat` (pre-existing exit code 1 issue) to `echo`
+- **Learnings for future iterations:**
+  - maxOutputBytes enforcement allows the last write that crosses the boundary through (check-then-add pattern in bridge-setup.ts logRef/errorRef) — overhead of one message is expected
+  - WasmVM `cat` command exits with code 1 for small files (pre-existing issue) — use `echo` for tests that need exit code 0
+  - Kernel internals (fdTableManager) accessible via `(kernel as any)` cast in tests — FDTableManager exported from @secure-exec/kernel but not on the Kernel interface
+  - bridge-child-process.test.ts has 3 pre-existing failures when WASM binary is present (ls, cat routing, VFS write tests exit code 1)
+---

@@ -1123,7 +1123,7 @@
         "Tests pass"
       ],
       "priority": 66,
-      "passes": false,
+      "passes": true,
       "notes": "Audit W3, W4, W10, W11. Loose assertions that allow broken enforcement to pass."
     },
     {
