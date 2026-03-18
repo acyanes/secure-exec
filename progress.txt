@@ -1237,3 +1237,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - readFile for /dev/stdin, /dev/stdout, /dev/stderr passes through to backing VFS (not intercepted)
   - TestFileSystem supports these passthrough operations for testing
 ---
+
+## 2026-03-17 - US-079
+- Implemented write-side fs permission denial tests and custom checker tests
+- Fixed core `checkPermission` to propagate `reason` from permission decision to error message
+- Updated `createEaccesError` to accept optional `reason` parameter
+- Updated all `onDenied` callbacks in wrapFileSystem, wrapNetworkAdapter, wrapCommandExecutor, envAccessAllowed
+- Files changed:
+  - packages/secure-exec-core/src/shared/errors.ts (reason param on createEaccesError)
+  - packages/secure-exec-core/src/shared/permissions.ts (reason propagation in checkPermission + all callbacks)
+  - packages/secure-exec/tests/permissions.test.ts (5 new tests)
+- **Learnings for future iterations:**
+  - Core `checkPermission` and kernel `checkPermission` had diverged — kernel propagated reason, core didn't
+  - fsOpToSyscall maps: write→"write", createDir→"mkdir", rm→"unlink" — match these in expectEacces assertions
+  - wrapCommandExecutor passes `cwd: options.cwd` to the childProcess permission checker request
+---
