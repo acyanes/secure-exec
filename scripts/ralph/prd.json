@@ -2188,7 +2188,7 @@
         "Tests pass"
       ],
       "priority": 130,
-      "passes": false,
+      "passes": true,
       "notes": "Root cause: host terminal in raw mode sends CR (0x0d) for Enter, but processInput() only treats LF (0x0a) as newline. Without ICRNL, CR is buffered as a regular character and its echo moves cursor to line start without flushing. This is the POSIX ICRNL flag."
     },
     {

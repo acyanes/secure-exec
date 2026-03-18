@@ -1661,3 +1661,17 @@ PRD: ralph/kernel-hardening (46 stories)
 - Verified: all 22 resource-exhaustion tests pass, typecheck passes
 - Marked passes: true in prd.json
 ---
+
+## 2026-03-18 - US-139
+- What was implemented: ICRNL (CR-to-NL) input conversion in PTY line discipline
+- Added `icrnl` boolean field to Termios interface (default true, matching POSIX)
+- In processInput(), convert byte 0x0d to 0x0a before all other discipline processing (signals, canonical, echo)
+- Updated fast-path condition to also check `icrnl` flag
+- Updated getTermios()/setTermios() to handle `icrnl` field
+- Files changed: packages/kernel/src/types.ts, packages/kernel/src/pty.ts, packages/kernel/test/kernel-integration.test.ts
+- 3 tests added: CR→NL in canonical mode, CR echo as CR+LF, ICRNL disabled passthrough
+- **Learnings for future iterations:**
+  - Termios fields need updates in 4 places: interface, defaultTermios(), getTermios() deep copy, setTermios() setter
+  - processInput fast-path condition must include any new input-processing flags (icrnl, etc.)
+  - `for (const byte of data)` becomes `for (let byte of data)` when byte needs mutation (ICRNL conversion)
+---
