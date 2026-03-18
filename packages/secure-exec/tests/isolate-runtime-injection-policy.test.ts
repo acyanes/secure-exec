@@ -1,93 +1,148 @@
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	NodeRuntime,
+	createNodeDriver,
+	createNodeRuntimeDriverFactory,
+} from "../src/index.js";
+import {
+	getIsolateRuntimeSource,
+	type IsolateRuntimeSourceId,
+} from "../../secure-exec-core/src/generated/isolate-runtime.js";
 
-function readSource(relativePath: string): string {
-	return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
-}
+type CapturedConsoleEvent = {
+	channel: "stdout" | "stderr";
+	message: string;
+};
 
-function readNodeSource(relativePath: string): string {
-	return readFileSync(
-		new URL(`../../secure-exec-node/${relativePath}`, import.meta.url),
-		"utf8",
-	);
-}
-
-function readBrowserSource(relativePath: string): string {
-	return readFileSync(
-		new URL(`../../secure-exec-browser/${relativePath}`, import.meta.url),
-		"utf8",
-	);
+function createConsoleCapture() {
+	const events: CapturedConsoleEvent[] = [];
+	return {
+		onStdio: (event: CapturedConsoleEvent) => {
+			events.push(event);
+		},
+		stdout: () =>
+			events
+				.filter((e) => e.channel === "stdout")
+				.map((e) => e.message)
+				.join("\n"),
+	};
 }
 
 describe("isolate runtime injection policy", () => {
-	it("avoids template-literal isolate eval snippets in Node runtime loader", () => {
-		// The Node runtime loader spans execution-driver.ts (facade) and its
-		// extracted modules; canonical source is in @secure-exec/node.
-		const nodeModulePaths = [
-			"src/execution-driver.ts",
-			"src/isolate-bootstrap.ts",
-			"src/module-resolver.ts",
-			"src/esm-compiler.ts",
-			"src/bridge-setup.ts",
-			"src/execution-lifecycle.ts",
+	const runtimes = new Set<NodeRuntime>();
+
+	function createRuntime(onStdio?: CapturedConsoleEvent["channel"] extends string ? (event: CapturedConsoleEvent) => void : never) {
+		const runtime = new NodeRuntime({
+			systemDriver: createNodeDriver({}),
+			runtimeDriverFactory: createNodeRuntimeDriverFactory(),
+			onStdio,
+		});
+		runtimes.add(runtime);
+		return runtime;
+	}
+
+	afterEach(async () => {
+		const list = Array.from(runtimes);
+		runtimes.clear();
+		for (const runtime of list) {
+			try {
+				await runtime.terminate();
+			} catch {
+				runtime.dispose();
+			}
+		}
+	});
+
+	it("all isolate runtime sources are valid self-contained IIFEs", () => {
+		const ids: IsolateRuntimeSourceId[] = [
+			"applyCustomGlobalPolicy",
+			"applyTimingMitigationFreeze",
+			"applyTimingMitigationOff",
+			"bridgeAttach",
+			"bridgeInitialGlobals",
+			"evalScriptResult",
+			"globalExposureHelpers",
+			"initCommonjsModuleGlobals",
+			"overrideProcessCwd",
+			"overrideProcessEnv",
+			"requireSetup",
+			"setCommonjsFileGlobals",
+			"setStdinData",
+			"setupDynamicImport",
+			"setupFsFacade",
 		];
-		const loaderSource = nodeModulePaths.map(readNodeSource).join("\n");
-		expect(loaderSource).not.toMatch(/context\.eval\(\s*`/);
-		expect(loaderSource).not.toContain(
-			"${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE}",
-		);
-		expect(loaderSource).toContain(
-			'getIsolateRuntimeSource("globalExposureHelpers")',
-		);
-		expect(loaderSource).toContain(
-			'getIsolateRuntimeSource("setupDynamicImport")',
-		);
-		expect(loaderSource).toContain('getIsolateRuntimeSource("setupFsFacade")');
-		expect(loaderSource).toContain(
-			'getIsolateRuntimeSource("initCommonjsModuleGlobals")',
-		);
+
+		for (const id of ids) {
+			const source = getIsolateRuntimeSource(id);
+			expect(source, `${id} should be a non-empty string`).toBeTruthy();
+			// Each source must be a self-contained IIFE — no template-literal
+			// interpolation holes or unresolved placeholders
+			expect(source).not.toContain("${");
+			// Parseable as JavaScript
+			expect(() => new Function(source), `${id} should parse as valid JS`).not.toThrow();
+		}
 	});
 
-	it("keeps bridge/require setup loaders on static isolate-runtime sources", () => {
-		// bridge-loader.ts canonical source is in @secure-exec/node
-		const bridgeLoader = readFileSync(
-			new URL("../../secure-exec-node/src/bridge-loader.ts", import.meta.url),
-			"utf8",
-		);
-		// bridge-setup.ts canonical source is in @secure-exec/core
-		const bridgeSetup = readFileSync(
-			new URL("../../secure-exec-core/src/bridge-setup.ts", import.meta.url),
-			"utf8",
-		);
-		// require-setup.ts canonical source is in @secure-exec/core
-		const requireSetup = readFileSync(
-			new URL("../../secure-exec-core/src/shared/require-setup.ts", import.meta.url),
-			"utf8",
+	it("filePath injection payload does not execute as code", async () => {
+		// If the loader used template-literal eval (`context.eval(\`...\``)),
+		// a crafted filePath could break out of the string boundary and inject
+		// arbitrary code.  With static getIsolateRuntimeSource() this is impossible.
+		const capture = createConsoleCapture();
+		const runtime = createRuntime(capture.onStdio);
+
+		const maliciousPath = `"; globalThis.__INJECTED__ = true; "`;
+		const result = await runtime.exec(
+			`console.log("injected:" + (typeof globalThis.__INJECTED__));`,
+			{ filePath: maliciousPath },
 		);
 
-		expect(bridgeLoader).not.toMatch(/return\s*`/);
-		expect(bridgeSetup).not.toMatch(/return\s*`/);
-		expect(requireSetup).not.toMatch(/return\s*`/);
-
-		expect(bridgeLoader).toContain("getIsolateRuntimeSource");
-		expect(bridgeSetup).toContain("getIsolateRuntimeSource");
-		expect(requireSetup).toContain('getIsolateRuntimeSource("requireSetup")');
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("injected:undefined");
 	});
 
-	it("browser worker no longer injects fs module code via code strings", () => {
-		// Canonical source is now in @secure-exec/browser.
-		const workerSource = readBrowserSource("src/worker.ts");
-		expect(workerSource).not.toContain("_fsModuleCode");
-		expect(workerSource).toContain('getIsolateRuntimeSource("globalExposureHelpers")');
+	it("bridge setup provides require, module, and CJS file globals", async () => {
+		const capture = createConsoleCapture();
+		const runtime = createRuntime(capture.onStdio);
+
+		const result = await runtime.exec(
+			`
+			const checks = [
+				"require:" + (typeof require === "function"),
+				"module:" + (typeof module === "object"),
+				"exports:" + (typeof exports === "object"),
+				"__filename:" + (typeof __filename === "string"),
+				"__dirname:" + (typeof __dirname === "string"),
+			];
+			console.log(checks.join(","));
+			`,
+			{ filePath: "/app/entry.js" },
+		);
+
+		expect(result.code).toBe(0);
+		const out = capture.stdout();
+		expect(out).toContain("require:true");
+		expect(out).toContain("module:true");
+		expect(out).toContain("exports:true");
+		expect(out).toContain("__filename:true");
+		expect(out).toContain("__dirname:true");
 	});
 
-	it("builds isolate runtime from src/inject entrypoints with shared common modules", () => {
-		const buildScript = readFileSync(
-			new URL("../../secure-exec-core/scripts/build-isolate-runtime.mjs", import.meta.url),
-			"utf8",
-		);
-		expect(buildScript).toContain('path.join(process.cwd(), "isolate-runtime", "src")');
-		expect(buildScript).toContain('path.join(runtimeSourceDir, "inject")');
-		expect(buildScript).toContain("bundle: true");
+	it("hardened bridge globals cannot be reassigned by user code", async () => {
+		const capture = createConsoleCapture();
+		const runtime = createRuntime(capture.onStdio);
+
+		const result = await runtime.exec(`
+			let overwritten = false;
+			try {
+				Object.defineProperty(globalThis, "require", { value: null, configurable: true });
+				overwritten = (typeof require !== "function");
+			} catch {
+				overwritten = false;
+			}
+			console.log("require-overwritten:" + overwritten);
+		`);
+
+		expect(result.code).toBe(0);
+		expect(capture.stdout()).toContain("require-overwritten:false");
 	});
 });
