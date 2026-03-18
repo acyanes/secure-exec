@@ -1432,7 +1432,7 @@
         "Tests pass"
       ],
       "priority": 84,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL \u2014 kernel.ts:451-749. Single shared KernelInterface given to all drivers; pid parameter trusted without validation. Any driver can read/write FDs, kill, or manipulate process groups of any other driver's processes."
     },
     {
@@ -1449,7 +1449,7 @@
         "Tests pass"
       ],
       "priority": 85,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL \u2014 kernel.ts:162-175. Timed-out process keeps running, stdout/stderr keep accumulating, timer never cleared on normal exit."
     },
     {
@@ -1466,7 +1466,7 @@
         "Tests pass"
       ],
       "priority": 86,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL \u2014 bridge-setup.ts:216-219. Buffer.allocUnsafe(byteLength) with no validation; sandbox can OOM host with single call."
     },
     {
@@ -1482,7 +1482,7 @@
         "Tests pass"
       ],
       "priority": 87,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL \u2014 bridge-setup.ts:202-207. Host setTimeout callbacks survive isolate recycling, holding dead isolate references. 100k timers at 24h delay = permanent host leak."
     },
     {
@@ -1498,7 +1498,7 @@
         "Tests pass"
       ],
       "priority": 88,
-      "passes": false,
+      "passes": true,
       "notes": "CRITICAL \u2014 network.ts:1655-1662. Currently installed via simple property assignment (writable, configurable). Sandbox code can replace fetch and intercept all outbound requests."
     },
     {
@@ -1514,7 +1514,7 @@
         "Tests pass"
       ],
       "priority": 89,
-      "passes": false,
+      "passes": true,
       "notes": "HIGH \u2014 pty.ts:412. lineBuffer is number[] (16 bytes/element on V8), grows without limit until newline. 100M bytes = ~1.6GB."
     },
     {
@@ -1531,7 +1531,7 @@
         "Tests pass"
       ],
       "priority": 90,
-      "passes": false,
+      "passes": true,
       "notes": "HIGH \u2014 kernel.ts:200-201. Controller PID never registered; FD table, master FD, and PID number leak on every shell open/close cycle."
     },
     {
@@ -1547,7 +1547,7 @@
         "Tests pass"
       ],
       "priority": 91,
-      "passes": false,
+      "passes": true,
       "notes": "HIGH \u2014 kernel.ts:509. fdWrite to regular files returns data.length without writing to VFS. Silent data loss."
     },
     {
@@ -2423,6 +2423,275 @@
       "priority": 141,
       "passes": false,
       "notes": "CLI E2E Phase 6 \u2014 final phase. Depends on US-080 (TerminalHarness), US-095 (isTTY). Claude Code uses Ink (React-based TUI) with cursor movement, screen clearing, and color codes. Known spawn stall risk. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
+    },
+    {
+      "id": "US-104",
+      "title": "Sandbox Python runtime \u2014 block import js host escape",
+      "description": "As a developer, I need the Python/Pyodide runtime to prevent sandbox code from reaching the host via import js, which currently gives full Node.js API access through the worker_threads Worker.",
+      "acceptanceCriteria": [
+        "Pyodide worker runs in a subprocess (not worker_threads) OR js/pyodide_js modules are intercepted and blocked before user code executes",
+        "Test: Python code running 'import js; js.globalThis' throws ImportError or returns a restricted proxy",
+        "Test: Python code running 'import js; js.globalThis.require(\"node:child_process\")' is blocked",
+        "Test: getattr/exec-based bypass attempts to reach js module are also blocked",
+        "Test: normal Python stdlib (math, json, re, collections) still works",
+        "The existing micropip/loadPackage regex check is removed or supplemented with real isolation",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 142,
+      "passes": false,
+      "notes": "Audit C1 \u2014 CRITICAL. Pyodide runs in worker_threads with eval: true, giving full Node.js access. The regex check for micropip/loadPackage is trivially bypassable via getattr, exec, or string concatenation. This is the most severe finding \u2014 Python runtime has zero isolation."
+    },
+    {
+      "id": "US-105",
+      "title": "Add assertPayloadByteLength to text file reads",
+      "description": "As a developer, I need the text file read bridge path (readFileRef) to enforce payload size limits matching the binary read path, preventing host OOM from arbitrarily large text files.",
+      "acceptanceCriteria": [
+        "readFileRef in execution-driver.ts calls assertPayloadByteLength before returning data (matching readFileBinaryRef behavior)",
+        "Test: reading a text file larger than the payload limit throws or truncates",
+        "Test: reading a normal-sized text file still works",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 143,
+      "passes": false,
+      "notes": "Audit C3 \u2014 CRITICAL. execution-driver.ts:1030-1032. Binary read path (readFileBinaryRef) correctly calls assertPayloadByteLength, text read path does not. With ModuleAccessFileSystem projecting host node_modules, sandbox code can read arbitrarily large text files into host memory."
+    },
+    {
+      "id": "US-106",
+      "title": "Restrict Browser Worker global APIs \u2014 block fetch, WebSocket, importScripts, indexedDB",
+      "description": "As a developer, I need the browser Worker sandbox to delete or wrap dangerous Web APIs before eval so sandbox code cannot bypass permission checks or hijack the control channel.",
+      "acceptanceCriteria": [
+        "Before user code eval: delete or override fetch, XMLHttpRequest, WebSocket, importScripts, indexedDB, caches, BroadcastChannel",
+        "self.onmessage is set as non-configurable after bridge setup",
+        "self.postMessage is wrapped to prevent forged responses to the host",
+        "Test: sandbox code calling fetch() throws ReferenceError or is routed through permission-checked bridge",
+        "Test: sandbox code calling importScripts() throws",
+        "Test: sandbox code calling new WebSocket() throws",
+        "Test: sandbox code overwriting self.onmessage throws TypeError",
+        "Test: normal bridge-provided APIs still work",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 144,
+      "passes": false,
+      "notes": "Audit C4 \u2014 CRITICAL (partial gap). US-118 hardened fetch/Headers/Request/Response/Blob as non-writable, but does not delete native fetch or block XMLHttpRequest, WebSocket, importScripts, indexedDB, caches, BroadcastChannel. self.onmessage is writable so sandbox code can hijack the control channel."
+    },
+    {
+      "id": "US-107",
+      "title": "Add concurrent host timer cap",
+      "description": "As a developer, I need a configurable maximum on concurrent host-side timers (setTimeout/setInterval) created by sandbox code to prevent event loop exhaustion.",
+      "acceptanceCriteria": [
+        "Bridge tracks count of active host-side timers",
+        "Configurable max (default 10000) \u2014 exceeding the cap throws or silently drops",
+        "Cleared timers decrement the count",
+        "Test: sandbox code creating maxTimers+1 timers \u2014 last one is rejected",
+        "Test: create maxTimers, clear half, create more \u2014 works up to cap",
+        "Test: normal code with <100 timers works fine",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 145,
+      "passes": false,
+      "notes": "Audit H3 (partial gap). US-117 handles cleanup on disposal but does not cap concurrent active timers. Sandbox code can create millions of pending host timers exhausting event loop and memory. Also covers audit M4 (isolate-side timer maps)."
+    },
+    {
+      "id": "US-108",
+      "title": "Cap active handle map size",
+      "description": "As a developer, I need the ActiveHandles map to have a size limit preventing unbounded growth from spawning thousands of child processes or registering thousands of handles.",
+      "acceptanceCriteria": [
+        "ActiveHandles map enforces a configurable max size (default 10000)",
+        "Exceeding the cap throws an error (EAGAIN or similar)",
+        "Handles removed on cleanup decrement the count",
+        "Test: register maxHandles+1 handles \u2014 last one throws",
+        "Test: register handles, remove some, register more \u2014 works up to cap",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 146,
+      "passes": false,
+      "notes": "Audit H4 (partial gap). US-126 caps FD table and event listeners but not the active-handles.ts map. Spawning thousands of child processes or timers grows the map without bound."
+    },
+    {
+      "id": "US-109",
+      "title": "Filter dangerous env vars from child process spawn",
+      "description": "As a developer, I need child_process.spawn to filter dangerous environment variables (LD_PRELOAD, NODE_OPTIONS, LD_LIBRARY_PATH) from the env passed by sandbox code.",
+      "acceptanceCriteria": [
+        "Child process spawn re-filters env through filterEnv (or strips known dangerous keys: LD_PRELOAD, NODE_OPTIONS, LD_LIBRARY_PATH, DYLD_INSERT_LIBRARIES)",
+        "Test: sandbox code passes LD_PRELOAD in spawn env \u2014 key is stripped from actual child env",
+        "Test: sandbox code passes NODE_OPTIONS in spawn env \u2014 key is stripped",
+        "Test: sandbox code passes normal env vars (PATH, HOME) \u2014 passed through correctly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 147,
+      "passes": false,
+      "notes": "Audit H5 \u2014 HIGH. execution-driver.ts:1162-1164. filterEnv is applied to process.env at init time but NOT to the env option passed from sandbox code to child_process.spawn. Combined with M8 (process.env mutations), sandbox code can inject LD_PRELOAD into spawned processes."
+    },
+    {
+      "id": "US-110",
+      "title": "Add SSRF protection \u2014 block private IPs and validate redirects",
+      "description": "As a developer, I need the network adapter to block requests to private/internal IP ranges and either disable redirect following or re-validate redirected URLs.",
+      "acceptanceCriteria": [
+        "Network adapter blocks requests to private IP ranges (10.x, 172.16-31.x, 192.168.x, 169.254.x, 127.x, ::1, fc00::/7, fe80::/10)",
+        "Redirect responses (301/302/307/308) either: disabled by default, or re-validated against permission checks and private IP blocklist",
+        "Test: fetch('http://169.254.169.254/latest/meta-data/') is blocked",
+        "Test: fetch to URL that 302-redirects to a private IP is blocked",
+        "Test: fetch to a public URL still works",
+        "Test: DNS rebinding protection \u2014 URL resolving to private IP after initial check is blocked (or documented as known limitation)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 148,
+      "passes": false,
+      "notes": "Audit H6 \u2014 HIGH. permissions.ts:228-234, node/driver.ts:241-278. Permission checks validate the original URL but fetch follows redirects by default. A URL that 302-redirects to http://169.254.169.254/ passes the check."
+    },
+    {
+      "id": "US-111",
+      "title": "Fix timing mitigation \u2014 make Date.now non-configurable and patch Date constructor",
+      "description": "As a developer, I need the timing mitigation to use writable:false + configurable:false for Date.now and also patch the Date constructor so sandbox code cannot trivially restore high-resolution timing.",
+      "acceptanceCriteria": [
+        "Date.now is frozen with Object.defineProperty using writable: false, configurable: false",
+        "new Date().getTime() returns the same degraded timing as Date.now()",
+        "performance.now() is also degraded or removed when timing mitigation is active",
+        "Test: sandbox code doing Date.now = () => performance.now() throws TypeError",
+        "Test: Object.defineProperty(Date, 'now', ...) throws TypeError",
+        "Test: new Date().getTime() returns degraded value matching Date.now()",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 149,
+      "passes": false,
+      "notes": "Audit M2 \u2014 MEDIUM. apply-timing-mitigation-freeze.ts:13-17. Date.now is set with writable: true, configurable: true. Sandbox code can restore it trivially."
+    },
+    {
+      "id": "US-112",
+      "title": "Add permission check to httpServerClose",
+      "description": "As a developer, I need httpServerClose to validate that the requesting sandbox owns the server being closed, preventing cross-sandbox server termination.",
+      "acceptanceCriteria": [
+        "httpServerClose checks that the server ID belongs to the calling sandbox/execution context",
+        "Test: sandbox A creates server, sandbox B attempts to close it \u2014 denied",
+        "Test: sandbox A creates server, sandbox A closes it \u2014 succeeds",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 150,
+      "passes": false,
+      "notes": "Audit M6 \u2014 MEDIUM. permissions.ts:223-226. httpServerClose is forwarded without permission check. Could allow closing other sandboxes' servers if server IDs are guessable."
+    },
+    {
+      "id": "US-113",
+      "title": "Harden Browser permission callback deserialization",
+      "description": "As a developer, I need permission callbacks in the browser worker to be deserialized safely, not via new Function() which is a code injection vector.",
+      "acceptanceCriteria": [
+        "Permission callbacks are transferred via structured clone or postMessage, not serialized as strings and revived with new Function()",
+        "OR: if string serialization is kept, input is validated against a strict whitelist/AST check before eval",
+        "Test: permission callback with injected code in the string does not execute arbitrary code",
+        "Test: normal permission callbacks (allow/deny) still work correctly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 151,
+      "passes": false,
+      "notes": "Audit M7 \u2014 MEDIUM. browser/worker.ts:79-88. Permission callbacks are serialized as strings and revived with new Function('return (' + source + ')')(). If permission string is ever influenced by untrusted input, this is code injection."
+    },
+    {
+      "id": "US-114",
+      "title": "Prevent process.env mutations from reaching child processes",
+      "description": "As a developer, I need process.env in the sandbox to be isolated so that mutations (e.g. setting LD_PRELOAD) do not propagate to child processes spawned with default env.",
+      "acceptanceCriteria": [
+        "process.env in sandbox is a copy \u2014 mutations do not affect the host process.env",
+        "Child processes spawned without explicit env option get the filtered init-time env, not the mutated sandbox env",
+        "Test: sandbox sets process.env.LD_PRELOAD, spawns child with default env \u2014 LD_PRELOAD is NOT in child env",
+        "Test: sandbox sets process.env.FOO, reads process.env.FOO \u2014 sees the value (sandbox-local mutation works)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 152,
+      "passes": false,
+      "notes": "Audit M8 \u2014 MEDIUM. process.ts:519-520, child-process.ts:447-448. process.env mutations are unrestricted and combined with H5, process.env.LD_PRELOAD then execSync('cmd') passes the injected variable. Related to US-109."
+    },
+    {
+      "id": "US-115",
+      "title": "Harden SharedArrayBuffer deletion fallback",
+      "description": "As a developer, I need the SharedArrayBuffer timing mitigation to use a robust removal approach that cannot be circumvented by sandbox code restoring it from a saved reference.",
+      "acceptanceCriteria": [
+        "SharedArrayBuffer is deleted from globalThis with configurable: false or replaced with a throwing proxy",
+        "Test: sandbox code that saved a reference to SharedArrayBuffer before freeze \u2014 reference is non-functional or throws",
+        "Test: globalThis.SharedArrayBuffer is undefined after mitigation",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 153,
+      "passes": false,
+      "notes": "Audit L2 \u2014 LOW. apply-timing-mitigation-freeze.ts:42-44. Current deletion is a simple delete which may not work if SAB was already captured by sandbox code."
+    },
+    {
+      "id": "US-116-B",
+      "title": "Make process.binding() throw instead of returning stubs",
+      "description": "As a developer, I need process.binding() to throw an error instead of returning stubs, as stubs can give sandbox code a false sense of access to internal Node.js bindings.",
+      "acceptanceCriteria": [
+        "process.binding() throws Error('process.binding is not supported in sandbox')",
+        "process._linkedBinding() also throws",
+        "Test: sandbox code calling process.binding('fs') throws",
+        "Test: sandbox code calling process.binding('buffer') throws",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 154,
+      "passes": false,
+      "notes": "Audit L3 \u2014 LOW. process.ts:760-784. Current stubs return mock objects. While not directly exploitable, they obscure the sandbox boundary."
+    },
+    {
+      "id": "US-117-B",
+      "title": "Cap ClientRequest._body and ServerResponse._chunks buffering",
+      "description": "As a developer, I need the bridge network request body and response chunks buffers to have size limits preventing host memory exhaustion.",
+      "acceptanceCriteria": [
+        "ClientRequest._body string concatenation is capped at a configurable limit (e.g., 50MB)",
+        "ServerResponseBridge._chunks array is capped at a configurable total byte size",
+        "Exceeding either cap throws an error or silently truncates",
+        "Test: sandbox code writing >50MB request body \u2014 error thrown",
+        "Test: sandbox code writing >50MB response chunks \u2014 error thrown",
+        "Test: normal-sized requests/responses work fine",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 155,
+      "passes": false,
+      "notes": "Audit L4 + L7 \u2014 LOW. network.ts:649 (ClientRequest._body unbounded string concat) and network.ts:923 (ServerResponseBridge._chunks unbounded array). Both grow without limit from sandbox code."
+    },
+    {
+      "id": "US-118-B",
+      "title": "Add rate limiting to Browser and Python worker stdio messages",
+      "description": "As a developer, I need the browser and Python worker stdio message channels to have rate limits preventing message flooding that could exhaust host memory or event loop.",
+      "acceptanceCriteria": [
+        "Browser worker postMessage for stdout/stderr is rate-limited or batched",
+        "Python worker stdout/stderr messages are rate-limited or batched",
+        "Test: sandbox code producing 1M stdout lines per second \u2014 host does not OOM, messages are batched or dropped",
+        "Test: normal output volume works without delay",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 156,
+      "passes": false,
+      "notes": "Audit L5 \u2014 LOW. browser/worker.ts:56, python/driver.ts:198-208. Neither worker rate-limits stdout/stderr messages, allowing sandbox code to flood the host message channel."
+    },
+    {
+      "id": "US-119-B",
+      "title": "Block module cache poisoning within single execution",
+      "description": "As a developer, I need require.cache and internal module caches to be non-writable from sandbox code so a module cannot poison the cache for other modules in the same execution.",
+      "acceptanceCriteria": [
+        "require.cache is frozen or replaced with a Proxy that rejects writes from sandbox code",
+        "_moduleCache is not directly accessible from sandbox code",
+        "Test: sandbox code doing require.cache['crypto'] = fakeModule \u2014 throws or is ignored",
+        "Test: sandbox code doing delete require.cache['crypto'] \u2014 throws or is ignored",
+        "Test: normal require() still works and caches correctly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 157,
+      "passes": false,
+      "notes": "Audit M3 \u2014 MEDIUM (partial gap from US-132). US-132 isolates caches across warm executions but does not prevent poisoning within a single execution. bridge-initial-globals.ts:22 exposes mutable _moduleCache and require.cache."
     }
   ]
 }
