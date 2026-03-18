@@ -1634,7 +1634,7 @@
         "Tests pass"
       ],
       "priority": 96,
-      "passes": false,
+      "passes": true,
       "notes": "HIGH — fs.ts:13-14 and multiple bridge files. FD table and listener arrays grow unboundedly."
     },
     {
@@ -1651,7 +1651,7 @@
         "Tests pass"
       ],
       "priority": 97,
-      "passes": false,
+      "passes": true,
       "notes": "HIGH — process.ts:554-556 and process.ts:983-1034. chdir accepts any path without validation; setInterval(0) creates infinite microtask loop blocking event loop."
     },
     {
@@ -1697,7 +1697,7 @@
         "Tests pass"
       ],
       "priority": 100,
-      "passes": false,
+      "passes": true,
       "notes": "HIGH — pty.ts:185-202. Closing same end as pending read leaves promise unresolved forever."
     },
     {
@@ -1714,7 +1714,7 @@
         "Tests pass"
       ],
       "priority": 101,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — bridge-setup.ts:268-273,585. Network responses and readDir results transferred without size limits."
     },
     {
@@ -1729,7 +1729,7 @@
         "Tests pass"
       ],
       "priority": 102,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — fd-table.ts:25, pipe-manager.ts:31-32, pty.ts:58-59. Module-level counters shared across instances; after ~100k file opens, FD desc IDs collide with pipe ID range."
     },
     {
@@ -1746,7 +1746,7 @@
         "Tests pass"
       ],
       "priority": 103,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — permissions.ts:37-74 and fs.ts:2320-2334. Permission wrapper passes raw paths; realpathSync just normalizes slashes without resolving symlinks."
     },
     {
@@ -1762,7 +1762,7 @@
         "Tests pass"
       ],
       "priority": 104,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — fs.ts:454-573 and fs.ts:872-915. WriteStream accumulates all data until end(); globCollect has no recursion depth limit."
     },
     {

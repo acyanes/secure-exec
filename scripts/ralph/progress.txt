@@ -1366,3 +1366,10 @@ PRD: ralph/kernel-hardening (46 stories)
 - **Learnings for future iterations:**
   - US-125 was already fully implemented but PRD wasn't updated — always verify code state before implementing
 ---
+
+## 2026-03-18 - US-126, US-127, US-123, US-128, US-129, US-130, US-131
+- Batch-verified 7 stories already implemented in prior iterations with passing tests
+- Updated PRD to mark all as passes: true
+- **Learnings for future iterations:**
+  - Multiple stories were implemented but PRD wasn't updated — batch-verify before starting new work
+---
