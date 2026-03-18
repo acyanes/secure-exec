@@ -43,7 +43,9 @@ async function confirm(msg: string): Promise<boolean> {
 }
 
 function bumpVersion(current: string, type: "patch" | "minor" | "major"): string {
-  const [major, minor, patch] = current.split(".").map(Number);
+  // Strip prerelease suffix (e.g. "0.1.0-rc.4" → "0.1.0")
+  const base = current.replace(/-.*$/, "");
+  const [major, minor, patch] = base.split(".").map(Number);
   switch (type) {
     case "patch": return `${major}.${minor}.${patch + 1}`;
     case "minor": return `${major}.${minor + 1}.0`;
@@ -53,20 +55,24 @@ function bumpVersion(current: string, type: "patch" | "minor" | "major"): string
 
 // ── Parse args ──
 
+function npmTag(version: string): "latest" | "rc" {
+  return version.includes("-") ? "rc" : "latest";
+}
+
 function parseArgs(): { version: string; tag: "latest" | "rc" } {
   const args = process.argv.slice(2);
 
-  // RC: exact version required
-  if (args.includes("--rc")) {
-    const idx = args.indexOf("--rc");
+  // Exact version: --version 0.1.0 or --version 0.2.0-rc.1
+  if (args.includes("--version")) {
+    const idx = args.indexOf("--version");
     const ver = args[idx + 1];
     if (!ver || ver.startsWith("--")) {
-      fatal("--rc requires an exact version (e.g. --rc 0.2.0-rc.1)");
+      fatal("--version requires an exact version (e.g. --version 0.1.0 or --version 0.2.0-rc.1)");
     }
-    if (!ver.includes("-")) {
-      fatal(`RC version should contain a prerelease identifier (got "${ver}")`);
+    if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(ver)) {
+      fatal(`Invalid version format: "${ver}"`);
     }
-    return { version: ver, tag: "rc" };
+    return { version: ver, tag: npmTag(ver) };
   }
 
   // Semver bump
@@ -79,7 +85,7 @@ function parseArgs(): { version: string; tag: "latest" | "rc" } {
     }
   }
 
-  fatal("Usage: release --patch | --minor | --major | --rc <version>");
+  fatal("Usage: release --patch | --minor | --major | --version <version>");
 }
 
 // ── Find publishable packages ──
