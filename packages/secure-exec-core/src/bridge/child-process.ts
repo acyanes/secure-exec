@@ -352,20 +352,22 @@ function exec(
   let maxBufferExceeded = false;
 
   child.stdout.on("data", (data: unknown) => {
+    if (maxBufferExceeded) return;
     const chunk = String(data);
     stdout += chunk;
     stdoutBytes += chunk.length;
-    if (stdoutBytes > maxBuffer && !maxBufferExceeded) {
+    if (stdoutBytes > maxBuffer) {
       maxBufferExceeded = true;
       child.kill("SIGTERM");
     }
   });
 
   child.stderr.on("data", (data: unknown) => {
+    if (maxBufferExceeded) return;
     const chunk = String(data);
     stderr += chunk;
     stderrBytes += chunk.length;
-    if (stderrBytes > maxBuffer && !maxBufferExceeded) {
+    if (stderrBytes > maxBuffer) {
       maxBufferExceeded = true;
       child.kill("SIGTERM");
     }

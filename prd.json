@@ -1597,7 +1597,7 @@
         "Tests pass"
       ],
       "priority": 94,
-      "passes": false,
+      "passes": true,
       "notes": "HIGH \u2014 bridge-setup.ts:394,427-472 and execution.ts:142. Child processes survive isolate recycling; activeHttpServerIds cleared on each exec() losing tracking."
     },
     {

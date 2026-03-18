@@ -25,6 +25,46 @@ function createConsoleCapture() {
 	};
 }
 
+/** CommandExecutor that emits `byteCount` bytes of stdout and exits with code 0. */
+function createLargeOutputExecutor(byteCount: number): CommandExecutor {
+	return {
+		spawn(
+			_command: string,
+			_args: string[],
+			options: {
+				cwd?: string;
+				env?: Record<string, string>;
+				onStdout?: (data: Uint8Array) => void;
+				onStderr?: (data: Uint8Array) => void;
+			},
+		): SpawnedProcess {
+			let exitResolve: (code: number) => void;
+			const waitPromise = new Promise<number>((r) => {
+				exitResolve = r;
+			});
+
+			// Emit large output in chunks, then exit
+			queueMicrotask(() => {
+				const chunkSize = 64 * 1024;
+				let remaining = byteCount;
+				while (remaining > 0) {
+					const size = Math.min(chunkSize, remaining);
+					options.onStdout?.(new Uint8Array(size).fill(0x41)); // 'A'
+					remaining -= size;
+				}
+				exitResolve(0);
+			});
+
+			return {
+				writeStdin() {},
+				closeStdin() {},
+				kill() {},
+				wait: () => waitPromise,
+			};
+		},
+	};
+}
+
 /** CommandExecutor that immediately exits with code 0 and emits "ok\n" stdout. */
 function createMockCommandExecutor(): CommandExecutor {
 	return {
@@ -96,10 +136,22 @@ describe("NodeRuntime resource budgets", () => {
 			`);
 			expect(result.code).toBe(0);
 			const total = capture.allText();
-			// Last write that crosses the budget boundary is allowed through,
-			// but subsequent writes are dropped — allow small overhead for that one message
-			expect(total.length).toBeLessThanOrEqual(budget + 32);
+			// Messages that would push total over budget are rejected entirely
+			expect(total.length).toBeLessThanOrEqual(budget);
 			expect(total.length).toBeGreaterThan(0);
+		});
+
+		it("rejects a single large message that exceeds the budget", async () => {
+			const budget = 1024;
+			const capture = createConsoleCapture();
+			proc = createTestNodeRuntime({
+				onStdio: capture.onStdio,
+				resourceBudgets: { maxOutputBytes: budget },
+			});
+			// Single 1MB console.log — must NOT be emitted
+			const result = await proc.exec(`console.log("x".repeat(1024 * 1024));`);
+			expect(result.code).toBe(0);
+			expect(capture.allText()).toBe("");
 		});
 
 		it("applies to stderr as well", async () => {
@@ -114,9 +166,32 @@ describe("NodeRuntime resource budgets", () => {
 			`);
 			expect(result.code).toBe(0);
 			const total = capture.allText();
-			// Same enforcement as stdout — budget + one overflow message
-			expect(total.length).toBeLessThanOrEqual(budget + 32);
+			// Messages that would push total over budget are rejected entirely
+			expect(total.length).toBeLessThanOrEqual(budget);
 			expect(total.length).toBeGreaterThan(0);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// spawnSync default maxBuffer
+	// -----------------------------------------------------------------------
+
+	describe("spawnSync default maxBuffer", () => {
+		it("caps output at default 1MB when caller does not specify maxBuffer", async () => {
+			const outputSize = 2 * 1024 * 1024; // 2MB
+			const capture = createConsoleCapture();
+			proc = createTestNodeRuntime({
+				commandExecutor: createLargeOutputExecutor(outputSize),
+				permissions: { ...allowAllFs, ...allowAllChildProcess },
+				onStdio: capture.onStdio,
+			});
+			const result = await proc.exec(`
+				const { spawnSync } = require('child_process');
+				const r = spawnSync('echo', ['big']);
+				console.log(r.error ? r.error.code : 'no-error');
+			`);
+			expect(result.code).toBe(0);
+			expect(capture.stdout()).toContain("ERR_CHILD_PROCESS_STDIO_MAXBUFFER");
 		});
 	});
 

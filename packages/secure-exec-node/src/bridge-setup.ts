@@ -90,10 +90,10 @@ export async function setupConsole(
 ): Promise<void> {
 	const logRef = new ivm.Reference((msg: string) => {
 		const str = String(msg);
-		// Enforce output byte budget — silently drop writes that exceed the limit
+		// Enforce output byte budget — reject messages that would exceed the limit
 		if (deps.maxOutputBytes !== undefined) {
 			const bytes = Buffer.byteLength(str, "utf8");
-			if (deps.budgetState.outputBytes >= deps.maxOutputBytes) return;
+			if (deps.budgetState.outputBytes + bytes > deps.maxOutputBytes) return;
 			deps.budgetState.outputBytes += bytes;
 		}
 		emitConsoleEvent(onStdio, { channel: "stdout", message: str });
@@ -102,7 +102,7 @@ export async function setupConsole(
 		const str = String(msg);
 		if (deps.maxOutputBytes !== undefined) {
 			const bytes = Buffer.byteLength(str, "utf8");
-			if (deps.budgetState.outputBytes >= deps.maxOutputBytes) return;
+			if (deps.budgetState.outputBytes + bytes > deps.maxOutputBytes) return;
 			deps.budgetState.outputBytes += bytes;
 		}
 		emitConsoleEvent(onStdio, { channel: "stderr", message: str });
@@ -526,8 +526,8 @@ export async function setupRequire(
 					maxBuffer?: number;
 				}>("child_process.spawnSync options", optionsJson, jsonPayloadLimit);
 
-				// Collect stdout/stderr with optional maxBuffer enforcement
-				const maxBuffer = options.maxBuffer;
+				// Collect stdout/stderr with maxBuffer enforcement (default 1MB)
+				const maxBuffer = options.maxBuffer ?? 1024 * 1024;
 				const stdoutChunks: Uint8Array[] = [];
 				const stderrChunks: Uint8Array[] = [];
 				let stdoutBytes = 0;
