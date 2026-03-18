@@ -1863,7 +1863,7 @@
         "Tests pass"
       ],
       "priority": 110,
-      "passes": false,
+      "passes": true,
       "notes": "MEDIUM — found during PTY review. readPump() is called without await at kernel.ts:~233. Errors are silently caught. Pump outlives shell.wait() resolution."
     },
     {
