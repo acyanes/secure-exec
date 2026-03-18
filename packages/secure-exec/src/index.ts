@@ -52,7 +52,7 @@ export type {
 export {
 	createPyodideRuntimeDriverFactory,
 	PyodideRuntimeDriver,
-} from "./python/driver.js";
+} from "@secure-exec/python";
 
 // Re-export browser driver factories.
 export {

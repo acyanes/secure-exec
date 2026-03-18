@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- @secure-exec/python package at packages/secure-exec-python/ owns PyodideRuntimeDriver (driver.ts) — deps: @secure-exec/core, pyodide
 - @secure-exec/browser package at packages/secure-exec-browser/ owns browser Web Worker runtime (driver.ts, runtime-driver.ts, worker.ts, worker-protocol.ts) — deps: @secure-exec/core, sucrase
 - @secure-exec/node package at packages/secure-exec-node/ owns V8-specific execution engine (execution.ts, isolate.ts, bridge-loader.ts, polyfills.ts) — deps: @secure-exec/core, isolated-vm, esbuild, node-stdlib-browser
 - @secure-exec/core package at packages/secure-exec-core/ owns shared types, utilities, bridge guest code, generated sources, and build scripts — build it first (turbo ^build handles this)
@@ -993,4 +994,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - Source-grep tests that check browser worker source must use readBrowserSource() to read from @secure-exec/browser
   - Browser test worker URL still references secure-exec/src/browser/worker.ts (thin proxy that imports @secure-exec/browser/internal/worker)
   - Kernel integration tests (bridge-child-process, cross-runtime-pipes, e2e-*) fail without WASM binary — pre-existing, not related to package extraction
+---
+
+## 2026-03-17 - US-060
+- What was implemented: Created @secure-exec/python package and moved PyodideRuntimeDriver from secure-exec/src/python/driver.ts
+- Files changed:
+  - packages/secure-exec-python/package.json — new package (name: @secure-exec/python, deps: @secure-exec/core, pyodide)
+  - packages/secure-exec-python/tsconfig.json — standard ESM TypeScript config
+  - packages/secure-exec-python/src/index.ts — barrel re-exporting createPyodideRuntimeDriverFactory and PyodideRuntimeDriver
+  - packages/secure-exec-python/src/driver.ts — moved from packages/secure-exec/src/python/driver.ts, updated imports to use @secure-exec/core directly
+  - packages/secure-exec/src/index.ts — updated re-export to import from @secure-exec/python instead of ./python/driver.js
+  - packages/secure-exec/package.json — added @secure-exec/python as workspace dependency
+  - prd.json — marked US-060 as passes: true
+- **Learnings for future iterations:**
+  - @secure-exec/python package at packages/secure-exec-python/ owns PyodideRuntimeDriver — deps: @secure-exec/core, pyodide
+  - The old python/driver.ts imported from ../shared/permissions.js, ../shared/api-types.js, ../types.js — all are re-exports from @secure-exec/core, so new package imports directly from @secure-exec/core
+  - pnpm-workspace.yaml packages/* glob already covers packages/secure-exec-python/ — no workspace config change needed
+  - Existing tests import from "secure-exec" barrel, not the internal path — barrel update is sufficient, no test changes needed
 ---

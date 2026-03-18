@@ -197,6 +197,9 @@ importers:
       '@secure-exec/node':
         specifier: workspace:*
         version: link:../secure-exec-node
+      '@secure-exec/python':
+        specifier: workspace:*
+        version: link:../secure-exec-python
       buffer:
         specifier: ^6.0.3
         version: 6.0.3
@@ -299,6 +302,22 @@ importers:
       node-stdlib-browser:
         specifier: ^1.3.1
         version: 1.3.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.3
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/secure-exec-python:
+    dependencies:
+      '@secure-exec/core':
+        specifier: workspace:*
+        version: link:../secure-exec-core
+      pyodide:
+        specifier: ^0.28.3
+        version: 0.28.3
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
