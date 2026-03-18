@@ -86,6 +86,7 @@ type BridgeDeps = Pick<
 	| "activeChildProcesses"
 	| "activeHostTimers"
 	| "resolutionCache"
+	| "onPtySetRawMode"
 >;
 
 export function emitConsoleEvent(
@@ -778,6 +779,15 @@ export async function setupRequire(
 			HOST_BRIDGE_GLOBAL_KEYS.networkHttpServerCloseRaw,
 			networkHttpServerCloseRef,
 		);
+	}
+
+	// Set up PTY setRawMode bridge ref when stdin is a TTY
+	if (deps.processConfig.stdinIsTTY) {
+		const onSetRawMode = deps.onPtySetRawMode;
+		const ptySetRawModeRef = new ivm.Reference((mode: boolean): void => {
+			if (onSetRawMode) onSetRawMode(mode);
+		});
+		await jail.set(HOST_BRIDGE_GLOBAL_KEYS.ptySetRawMode, ptySetRawModeRef);
 	}
 
 	// Install isolate-global descriptor helpers before runtime bootstrap scripts.
