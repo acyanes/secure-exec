@@ -10,11 +10,13 @@ const ROOT = join(import.meta.dirname, "..");
 // ── Helpers ──
 
 function run(cmd: string, opts?: { cwd?: string; stdio?: "pipe" | "inherit" }) {
-  return execSync(cmd, {
+  const result = execSync(cmd, {
     cwd: opts?.cwd ?? ROOT,
     stdio: opts?.stdio ?? "pipe",
     encoding: "utf-8",
-  }).trim();
+  });
+  // execSync returns null when stdio is "inherit"
+  return result?.trim() ?? "";
 }
 
 function fatal(msg: string): never {
@@ -156,7 +158,10 @@ async function main() {
 
   // Commit & push
   console.log("\n\x1b[1mCommitting version bump...\x1b[0m");
-  run("git add -A");
+  run("git add package.json");
+  for (const pkg of packages) {
+    run(`git add ${join(pkg, "package.json")}`);
+  }
   run(`git commit -m "release: v${version}"`);
   run("git push origin main");
 
