@@ -1323,3 +1323,28 @@ PRD: ralph/kernel-hardening (46 stories)
   - PipeManager write() already checked write-end closure but not read-end — POSIX requires EPIPE when no readers exist
   - The check order matters: EBADF → EPIPE (write closed) → EPIPE (read closed) → deliver/buffer
 ---
+
+## 2026-03-18 - US-124
+- What was implemented: Clean up child processes and HTTP servers on isolate disposal/timeout
+  - Added `activeChildProcesses: Map<number, SpawnedProcess>` to DriverDeps for host-level child process tracking
+  - Added `killActiveChildProcesses()` utility that SIGKILL's all tracked processes
+  - Changed bridge-setup.ts to use `deps.activeChildProcesses` instead of local `sessions` map (promotes tracking from context-local to driver-level)
+  - Removed `activeHttpServerIds.clear()` from execution.ts exec() start — servers from previous exec are now tracked across calls
+  - Removed `activeHttpServerIds` from ExecutionRuntime type (no longer needed in execution.ts)
+  - Added `closeActiveHttpServers()` to execution-driver.ts for sync fire-and-forget server cleanup
+  - recycleIsolate(): now calls killActiveChildProcesses + closeActiveHttpServers before disposing
+  - dispose(): now calls killActiveChildProcesses + closeActiveHttpServers before disposing
+  - terminate(): now calls killActiveChildProcesses before awaiting server close
+- Files changed:
+  - packages/secure-exec-node/src/isolate-bootstrap.ts — added activeChildProcesses to DriverDeps, added killActiveChildProcesses()
+  - packages/secure-exec-node/src/bridge-setup.ts — added activeChildProcesses to BridgeDeps, replaced local sessions map
+  - packages/secure-exec-node/src/execution.ts — removed activeHttpServerIds.clear() and from ExecutionRuntime type
+  - packages/secure-exec-node/src/execution-driver.ts — added cleanup to recycleIsolate/dispose/terminate, added closeActiveHttpServers()
+  - packages/secure-exec/tests/runtime-driver/node/resource-budgets.test.ts — added child process cleanup and HTTP server cleanup tests
+- **Learnings for future iterations:**
+  - Bridge's local `sessions` Map was context-scoped — each setupRequire() call created a new one, orphaning processes from previous contexts. Moving to DriverDeps fixes this.
+  - `activeHttpServerIds.clear()` in exec() start was silently losing server tracking — servers created in exec N were invisible to cleanup after exec N+1 started
+  - recycleIsolate is called on CPU timeout — any resource cleanup that should happen on timeout must be added there, not just in terminate()
+  - closeActiveHttpServers uses fire-and-forget (no await) since the isolate is being disposed — awaiting could block disposal
+  - Tests for timeout-triggered cleanup: create resource, then `while (true) {}` to trigger CPU timeout, verify cleanup happened
+---
