@@ -17,15 +17,18 @@ import type { VirtualFileSystem } from "./vfs.js";
 function checkPermission<T>(
 	check: ((request: T) => PermissionDecision) | undefined,
 	request: T,
-	errorFactory: (request: T) => Error,
+	errorFactory: (request: T, reason?: string) => Error,
 ): void {
 	if (!check) throw errorFactory(request);
 	const decision = check(request);
-	if (!decision?.allow) throw errorFactory(request);
+	if (!decision?.allow) throw errorFactory(request, decision?.reason);
 }
 
-function fsError(op: string, path?: string): KernelError {
-	return new KernelError("EACCES", `permission denied, ${op} '${path ?? ""}'`);
+function fsError(op: string, path?: string, reason?: string): KernelError {
+	const msg = reason
+		? `permission denied, ${op} '${path ?? ""}': ${reason}`
+		: `permission denied, ${op} '${path ?? ""}'`;
+	return new KernelError("EACCES", msg);
 }
 
 /**
@@ -36,8 +39,8 @@ export function wrapFileSystem(
 	permissions?: Permissions,
 ): VirtualFileSystem {
 	const check = (op: FsAccessRequest["op"], path: string) => {
-		checkPermission(permissions?.fs, { op, path }, (req) =>
-			fsError(op, req.path),
+		checkPermission(permissions?.fs, { op, path }, (req, reason) =>
+			fsError(op, req.path, reason),
 		);
 	};
 
@@ -105,7 +108,10 @@ export function checkChildProcess(
 	const request = { command, args, cwd };
 	const decision = permissions.childProcess(request);
 	if (!decision?.allow) {
-		throw new KernelError("EACCES", `permission denied, spawn '${command}'`);
+		const msg = decision?.reason
+			? `permission denied, spawn '${command}': ${decision.reason}`
+			: `permission denied, spawn '${command}'`;
+		throw new KernelError("EACCES", msg);
 	}
 }
 

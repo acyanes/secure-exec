@@ -7,7 +7,7 @@ import {
 } from "./helpers.js";
 import type { Kernel, Permissions } from "../src/types.js";
 import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
-import { filterEnv } from "../src/permissions.js";
+import { filterEnv, wrapFileSystem } from "../src/permissions.js";
 
 describe("kernel + MockRuntimeDriver integration", () => {
 	let kernel: Kernel;
@@ -1690,6 +1690,68 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			const filtered = filterEnv(env, permissions);
 			expect(filtered).toEqual(env);
+		});
+
+		it("fs missing checker: writeFile throws EACCES", async () => {
+			const { kernel: k } = await createTestKernel({
+				permissions: {},
+			});
+			kernel = k;
+
+			await expect(kernel.writeFile("/tmp/data.txt", "content")).rejects.toThrow("EACCES");
+		});
+
+		it("fs missing checker: createDir throws EACCES", async () => {
+			const vfs = new TestFileSystem();
+			const wrapped = wrapFileSystem(vfs, {});
+
+			await expect(wrapped.createDir("/tmp/newdir")).rejects.toThrow("EACCES");
+		});
+
+		it("fs missing checker: removeFile throws EACCES", async () => {
+			const vfs = new TestFileSystem();
+			await vfs.writeFile("/tmp/existing.txt", "data");
+			const wrapped = wrapFileSystem(vfs, {});
+
+			await expect(wrapped.removeFile("/tmp/existing.txt")).rejects.toThrow("EACCES");
+		});
+
+		it("custom fs checker: deny with reason includes reason in EACCES error", async () => {
+			const { kernel: k } = await createTestKernel({
+				permissions: {
+					fs: () => ({ allow: false, reason: "policy" }),
+				},
+			});
+			kernel = k;
+
+			const err = await kernel.writeFile("/tmp/data.txt", "content").catch((e: Error) => e);
+			expect(err).toBeInstanceOf(Error);
+			expect((err as Error).message).toContain("EACCES");
+			expect((err as Error).message).toContain("policy");
+		});
+
+		it("childProcess permission checker receives cwd in request", async () => {
+			const captured: { command: string; args: string[]; cwd?: string }[] = [];
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			const { kernel: k } = await createTestKernel({
+				drivers: [driver],
+				permissions: {
+					fs: () => ({ allow: true }),
+					childProcess: (req) => {
+						captured.push({ command: req.command, args: req.args, cwd: req.cwd });
+						return { allow: true };
+					},
+				},
+			});
+			kernel = k;
+
+			const proc = kernel.spawn("test-cmd", ["arg1"], { cwd: "/home/user" });
+			await proc.wait();
+
+			expect(captured).toHaveLength(1);
+			expect(captured[0].cwd).toBe("/home/user");
 		});
 	});
 
