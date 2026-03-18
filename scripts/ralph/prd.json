@@ -863,7 +863,7 @@
         "Tests pass"
       ],
       "priority": 51,
-      "passes": false,
+      "passes": true,
       "notes": "P9 \u2014 US-036/037 used EventEmitter mock dispatchers instead of real HTTP. packages/secure-exec/tests/projects/express-pass/ and fastify-pass/"
     },
     {
@@ -883,7 +883,7 @@
         "Tests pass"
       ],
       "priority": 52,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 1a of package-split spec (docs-internal/specs/package-split.md). Shared files have zero isolated-vm imports. Leave bridge/, generated/, isolate-runtime/, facades, and module resolution for subsequent stories."
     },
     {
@@ -902,7 +902,7 @@
         "Tests pass"
       ],
       "priority": 53,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 1b. Bridge guest code has zero ivm imports \u2014 Node injects via context.eval(), Browser imports directly. Generated code is used by both Node and Browser."
     },
     {
@@ -923,7 +923,7 @@
         "Tests pass"
       ],
       "priority": 54,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 1c. runtime.ts has zero ivm imports \u2014 it accepts any NodeRuntimeDriverFactory and delegates. Both Node (createNodeRuntimeDriverFactory) and Browser (createBrowserRuntimeDriverFactory) plug into it."
     },
     {
@@ -938,7 +938,7 @@
         "All tests pass"
       ],
       "priority": 55,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 1d \u2014 final core story. The internal/ prefix signals these are not stable public API. Runtime packages use them but external consumers should not."
     },
     {
@@ -958,7 +958,7 @@
         "Tests pass"
       ],
       "priority": 56,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 2a. execution.ts ExecutionRuntime interface uses ivm.Isolate, ivm.Context, ivm.Module, ivm.Reference throughout \u2014 fully V8-specific."
     },
     {
@@ -974,7 +974,7 @@
         "Tests pass"
       ],
       "priority": 57,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 2b. The build:bridge step should use option 3 from spec: core exports getRawBridgeCode() and node imports it. node/bridge-setup.ts is the ivm.Reference wiring file (~780 lines)."
     },
     {
@@ -989,7 +989,7 @@
         "All Node tests pass"
       ],
       "priority": 58,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 2c. This is the primary motivating consumer \u2014 the kernel adapter should not need to pull in the full secure-exec bundle."
     },
     {
@@ -1005,7 +1005,7 @@
         "Tests pass"
       ],
       "priority": 59,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 3. Browser worker has its own execution loop (eval + sucrase), never imports isolated-vm. Worker is expected to be bundled \u2014 cross-package imports are transparent to bundlers."
     },
     {
@@ -1021,7 +1021,7 @@
         "Tests pass"
       ],
       "priority": 60,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 4. Smallest extraction \u2014 just one file. python-runtime.ts facade already moved to core in US-054."
     },
     {
@@ -1041,7 +1041,7 @@
         "All tests pass"
       ],
       "priority": 61,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 5. The barrel re-exports everything \u2014 existing \"import from secure-exec\" statements require zero changes. Tests stay centralized per runtime-driver-test-suite-structure contract."
     },
     {
@@ -1057,7 +1057,7 @@
         "Tests pass"
       ],
       "priority": 62,
-      "passes": false,
+      "passes": true,
       "notes": "Audit F1. All 4 existing tests are source-code greps masquerading as security tests. Zero behavioral verification."
     },
     {
@@ -1073,7 +1073,7 @@
         "Tests pass"
       ],
       "priority": 63,
-      "passes": false,
+      "passes": true,
       "notes": "Audit F2-F5. These tests only assert driver.name after setting options, proving nothing about enforcement."
     },
     {
@@ -1089,7 +1089,7 @@
         "Tests pass"
       ],
       "priority": 64,
-      "passes": false,
+      "passes": true,
       "notes": "Audit F6. Current test just runs 'echo hello' with no spy. Compare to node driver test which correctly uses spy driver."
     },
     {
@@ -1105,7 +1105,7 @@
         "Tests pass"
       ],
       "priority": 65,
-      "passes": false,
+      "passes": true,
       "notes": "Audit F7, F9, W5, W6. Small fixes across multiple test files."
     },
     {
@@ -1123,7 +1123,7 @@
         "Tests pass"
       ],
       "priority": 66,
-      "passes": false,
+      "passes": true,
       "notes": "Audit W3, W4, W10, W11. Loose assertions that allow broken enforcement to pass."
     },
     {
@@ -1138,7 +1138,7 @@
         "Tests pass"
       ],
       "priority": 67,
-      "passes": false,
+      "passes": true,
       "notes": "Audit W7, W9. Log tests only check code===0 without verifying output was produced/dropped. Network test uses only data: URIs."
     },
     {
@@ -1156,7 +1156,7 @@
         "Tests pass"
       ],
       "priority": 68,
-      "passes": false,
+      "passes": true,
       "notes": "Audit M1, M2. Critical gap for a project named 'secure-exec'."
     },
     {
@@ -1173,7 +1173,7 @@
         "Tests pass"
       ],
       "priority": 69,
-      "passes": false,
+      "passes": true,
       "notes": "Audit M3, M4. Only _cryptoRandomFill is tested for freeze. No path traversal attack tests exist."
     },
     {
@@ -1622,14 +1622,14 @@
         "setRawMode() throws when isTTY is false (no PTY attached)",
         "Test: spawn sandbox process on PTY, verify isTTY === true inside sandbox",
         "Test: spawn sandbox process without PTY, verify isTTY === false",
-        "Test: setRawMode(true) then type characters — no echo, immediate byte delivery",
+        "Test: setRawMode(true) then type characters \u2014 no echo, immediate byte delivery",
         "Test: setRawMode(false) restores echo and line buffering",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 95,
       "passes": false,
-      "notes": "CLI E2E Phase 0 — bridge prerequisite. Gap #2, #5, #6 from cli-tool-e2e.md spec. Files: packages/secure-exec/src/bridge/process.ts, packages/secure-exec/src/node/execution-driver.ts"
+      "notes": "CLI E2E Phase 0 \u2014 bridge prerequisite. Gap #2, #5, #6 from cli-tool-e2e.md spec. Files: packages/secure-exec/src/bridge/process.ts, packages/secure-exec/src/node/execution-driver.ts"
     },
     {
       "id": "US-096",
@@ -1649,25 +1649,25 @@
       ],
       "priority": 96,
       "passes": false,
-      "notes": "CLI E2E Phase 0 — bridge prerequisite. Gap #1, #3 from cli-tool-e2e.md spec. Required for Pi, Claude Code (Anthropic SSE), and OpenCode SDK (OpenAI SSE)."
+      "notes": "CLI E2E Phase 0 \u2014 bridge prerequisite. Gap #1, #3 from cli-tool-e2e.md spec. Required for Pi, Claude Code (Anthropic SSE), and OpenCode SDK (OpenAI SSE)."
     },
     {
       "id": "US-097",
       "title": "Create shared mock LLM server and Pi headless CLI tool tests",
       "description": "As a developer, I need a mock LLM server utility serving both Anthropic Messages API and OpenAI Chat Completions SSE, plus Pi headless E2E tests proving Pi boots and produces output inside the sandbox.",
       "acceptanceCriteria": [
-        "packages/secure-exec/tests/cli-tools/mock-llm-server.ts created — exports createMockLlmServer(cannedResponse)",
+        "packages/secure-exec/tests/cli-tools/mock-llm-server.ts created \u2014 exports createMockLlmServer(cannedResponse)",
         "Mock server handles POST /messages with Anthropic Messages SSE format (content_block_start, content_block_delta, content_block_stop, message_stop)",
         "Mock server handles POST /chat/completions with OpenAI Chat Completions SSE format (chat.completion.chunk with delta, finish_reason, [DONE])",
         "Mock server returns 404 for unknown routes",
         "@mariozechner/pi-coding-agent added as devDependency to packages/secure-exec",
         "packages/secure-exec/tests/cli-tools/pi-headless.test.ts created",
-        "Test: Pi boots in print mode — 'pi --print \"say hello\"' exits with code 0",
-        "Test: Pi produces output — stdout contains the canned LLM response",
-        "Test: Pi reads a file — seed VFS with file, Pi's read tool accesses it",
-        "Test: Pi writes a file — file exists in VFS after Pi's write tool runs",
-        "Test: Pi runs bash command — Pi's bash tool executes ls via child_process",
-        "Test: Pi JSON output mode — 'pi --json \"say hello\"' produces valid JSON",
+        "Test: Pi boots in print mode \u2014 'pi --print \"say hello\"' exits with code 0",
+        "Test: Pi produces output \u2014 stdout contains the canned LLM response",
+        "Test: Pi reads a file \u2014 seed VFS with file, Pi's read tool accesses it",
+        "Test: Pi writes a file \u2014 file exists in VFS after Pi's write tool runs",
+        "Test: Pi runs bash command \u2014 Pi's bash tool executes ls via child_process",
+        "Test: Pi JSON output mode \u2014 'pi --json \"say hello\"' produces valid JSON",
         "Tests gated with skipUnless(hasPiInstalled()) or equivalent",
         "Typecheck passes",
         "Tests pass"
@@ -1683,11 +1683,11 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/cli-tools/pi-interactive.test.ts created",
         "Spawn Pi inside openShell() with PTY, process.stdout.isTTY must be true in sandbox",
-        "Test: Pi TUI renders — screen shows Pi's prompt/editor UI after boot",
-        "Test: input appears on screen — type 'hello', text appears in editor area",
-        "Test: submit prompt renders response — type prompt + Enter, LLM response renders on screen",
-        "Test: ^C interrupts — send SIGINT during response streaming, Pi stays alive",
-        "Test: exit cleanly — /exit or ^D, Pi exits, PTY closes",
+        "Test: Pi TUI renders \u2014 screen shows Pi's prompt/editor UI after boot",
+        "Test: input appears on screen \u2014 type 'hello', text appears in editor area",
+        "Test: submit prompt renders response \u2014 type prompt + Enter, LLM response renders on screen",
+        "Test: ^C interrupts \u2014 send SIGINT during response streaming, Pi stays alive",
+        "Test: exit cleanly \u2014 /exit or ^D, Pi exits, PTY closes",
         "Tests use TerminalHarness with waitFor() for timing-sensitive assertions",
         "Tests gated with skipUnless(hasPiInstalled()) and isTTY support available",
         "Typecheck passes",
@@ -1704,23 +1704,23 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/cli-tools/opencode-headless.test.ts created",
         "opencode.json config fixture created with mock server baseURL",
-        "Test: OpenCode boots in run mode — 'opencode run \"say hello\"' exits with code 0",
-        "Test: OpenCode produces output — stdout contains the canned LLM response",
-        "Test: OpenCode text format — 'opencode run --format text \"say hello\"' produces plain text",
-        "Test: OpenCode JSON format — 'opencode run --format json \"say hello\"' produces valid JSON",
-        "Test: Environment forwarding — API key and base URL reach the binary",
-        "Test: OpenCode reads sandbox file — seed VFS, prompt asks to read it",
-        "Test: OpenCode writes sandbox file — file exists in VFS after write",
-        "Test: SIGINT stops execution — send SIGINT during run, process terminates cleanly",
-        "Test: Exit code on error — bad API key → non-zero exit",
-        "Tests gated with skipUnless(hasOpenCodeBinary()) — skips if opencode not on PATH",
+        "Test: OpenCode boots in run mode \u2014 'opencode run \"say hello\"' exits with code 0",
+        "Test: OpenCode produces output \u2014 stdout contains the canned LLM response",
+        "Test: OpenCode text format \u2014 'opencode run --format text \"say hello\"' produces plain text",
+        "Test: OpenCode JSON format \u2014 'opencode run --format json \"say hello\"' produces valid JSON",
+        "Test: Environment forwarding \u2014 API key and base URL reach the binary",
+        "Test: OpenCode reads sandbox file \u2014 seed VFS, prompt asks to read it",
+        "Test: OpenCode writes sandbox file \u2014 file exists in VFS after write",
+        "Test: SIGINT stops execution \u2014 send SIGINT during run, process terminates cleanly",
+        "Test: Exit code on error \u2014 bad API key \u2192 non-zero exit",
+        "Tests gated with skipUnless(hasOpenCodeBinary()) \u2014 skips if opencode not on PATH",
         "XDG_DATA_HOME set to temp directory for test-isolated SQLite storage",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 99,
       "passes": false,
-      "notes": "CLI E2E Phase 3, Strategy A. OpenCode is a Bun binary, NOT a Node.js package — tests the child_process.spawn bridge for complex host binaries. Hardest CLI tool, tested before Claude Code to front-load risk."
+      "notes": "CLI E2E Phase 3, Strategy A. OpenCode is a Bun binary, NOT a Node.js package \u2014 tests the child_process.spawn bridge for complex host binaries. Hardest CLI tool, tested before Claude Code to front-load risk."
     },
     {
       "id": "US-100",
@@ -1731,11 +1731,11 @@
         "Tests added to packages/secure-exec/tests/cli-tools/opencode-headless.test.ts (Strategy B describe block)",
         "opencode serve started as background fixture in beforeAll, health-checked, killed in afterAll",
         "Unique port per test run to avoid conflicts",
-        "Test: SDK client connects — create client, call health/status endpoint",
-        "Test: SDK sends prompt — send prompt via SDK, receive streamed response",
-        "Test: SDK session management — create session, send message, list messages",
-        "Test: SSE streaming works — response streams incrementally, not all-at-once",
-        "Test: SDK error handling — invalid session ID → proper error response",
+        "Test: SDK client connects \u2014 create client, call health/status endpoint",
+        "Test: SDK sends prompt \u2014 send prompt via SDK, receive streamed response",
+        "Test: SDK session management \u2014 create session, send message, list messages",
+        "Test: SSE streaming works \u2014 response streams incrementally, not all-at-once",
+        "Test: SDK error handling \u2014 invalid session ID \u2192 proper error response",
         "Tests gated with skipUnless(hasOpenCodeBinary())",
         "Typecheck passes",
         "Tests pass"
@@ -1751,19 +1751,19 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/cli-tools/opencode-interactive.test.ts created",
         "Spawn opencode binary inside openShell() with PTY",
-        "Test: OpenCode TUI renders — screen shows OpenTUI interface after boot",
-        "Test: Input area works — type prompt text, appears in input area",
-        "Test: Submit shows response — enter prompt, streaming response renders on screen",
-        "Test: ^C interrupts — send SIGINT during streaming, OpenCode stays alive",
-        "Test: Exit cleanly — :q or ^C, OpenCode exits, PTY closes",
-        "Tests use TerminalHarness with waitFor() — use content-based assertions (not strict exact-match) due to OpenTUI rendering differences",
+        "Test: OpenCode TUI renders \u2014 screen shows OpenTUI interface after boot",
+        "Test: Input area works \u2014 type prompt text, appears in input area",
+        "Test: Submit shows response \u2014 enter prompt, streaming response renders on screen",
+        "Test: ^C interrupts \u2014 send SIGINT during streaming, OpenCode stays alive",
+        "Test: Exit cleanly \u2014 :q or ^C, OpenCode exits, PTY closes",
+        "Tests use TerminalHarness with waitFor() \u2014 use content-based assertions (not strict exact-match) due to OpenTUI rendering differences",
         "Tests gated with skipUnless(hasOpenCodeBinary())",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 101,
       "passes": false,
-      "notes": "CLI E2E Phase 4. Depends on US-080 (TerminalHarness), US-095 (isTTY). OpenCode uses OpenTUI (TypeScript + Zig) with SolidJS — may render non-standard ANSI sequences. Use waitFor() with content assertions, tighten after empirical capture."
+      "notes": "CLI E2E Phase 4. Depends on US-080 (TerminalHarness), US-095 (isTTY). OpenCode uses OpenTUI (TypeScript + Zig) with SolidJS \u2014 may render non-standard ANSI sequences. Use waitFor() with content assertions, tighten after empirical capture."
     },
     {
       "id": "US-102",
@@ -1772,21 +1772,21 @@
       "acceptanceCriteria": [
         "@anthropic-ai/claude-code added as devDependency to packages/secure-exec (or use @anthropic-ai/claude-agent-sdk if npm package has native binary issues)",
         "packages/secure-exec/tests/cli-tools/claude-headless.test.ts created",
-        "Test: Claude boots in headless mode — 'claude -p \"say hello\"' exits with code 0",
-        "Test: Claude produces text output — stdout contains canned LLM response",
-        "Test: Claude JSON output — '--output-format json' produces valid JSON with result field",
-        "Test: Claude stream-json output — '--output-format stream-json' produces valid NDJSON",
-        "Test: Claude reads a file — seed VFS, ask Claude to read it via Read tool",
-        "Test: Claude writes a file — ask Claude to create a file, file exists in VFS after",
-        "Test: Claude runs bash — ask Claude to run 'echo hello' via Bash tool",
-        "Test: Claude exit codes — bad API key → non-zero exit, good prompt → exit 0",
+        "Test: Claude boots in headless mode \u2014 'claude -p \"say hello\"' exits with code 0",
+        "Test: Claude produces text output \u2014 stdout contains canned LLM response",
+        "Test: Claude JSON output \u2014 '--output-format json' produces valid JSON with result field",
+        "Test: Claude stream-json output \u2014 '--output-format stream-json' produces valid NDJSON",
+        "Test: Claude reads a file \u2014 seed VFS, ask Claude to read it via Read tool",
+        "Test: Claude writes a file \u2014 ask Claude to create a file, file exists in VFS after",
+        "Test: Claude runs bash \u2014 ask Claude to run 'echo hello' via Bash tool",
+        "Test: Claude exit codes \u2014 bad API key \u2192 non-zero exit, good prompt \u2192 exit 0",
         "Tests gated with skipUnless(hasClaudeInstalled()) or equivalent",
         "Typecheck passes",
         "Tests pass"
       ],
       "priority": 102,
       "passes": false,
-      "notes": "CLI E2E Phase 5. Claude Code is the most complex in-VM tool — Node.js with native binary, Ink TUI, known spawn stall issue (anthropics/claude-code#771). Consider @anthropic-ai/claude-agent-sdk as fallback entry point."
+      "notes": "CLI E2E Phase 5. Claude Code is the most complex in-VM tool \u2014 Node.js with native binary, Ink TUI, known spawn stall issue (anthropics/claude-code#771). Consider @anthropic-ai/claude-agent-sdk as fallback entry point."
     },
     {
       "id": "US-103",
@@ -1795,12 +1795,12 @@
       "acceptanceCriteria": [
         "packages/secure-exec/tests/cli-tools/claude-interactive.test.ts created",
         "Spawn Claude inside openShell() with PTY, isTTY must be true",
-        "Test: Claude TUI renders — screen shows Ink-based UI after boot",
-        "Test: Input area works — type prompt text, appears in input area",
-        "Test: Submit shows response — enter prompt, streaming response renders on screen",
-        "Test: ^C interrupts response — send SIGINT during streaming, Claude stays alive",
-        "Test: Color output renders — ANSI color codes render correctly in xterm buffer",
-        "Test: Exit cleanly — /exit or ^C twice, Claude exits",
+        "Test: Claude TUI renders \u2014 screen shows Ink-based UI after boot",
+        "Test: Input area works \u2014 type prompt text, appears in input area",
+        "Test: Submit shows response \u2014 enter prompt, streaming response renders on screen",
+        "Test: ^C interrupts response \u2014 send SIGINT during streaming, Claude stays alive",
+        "Test: Color output renders \u2014 ANSI color codes render correctly in xterm buffer",
+        "Test: Exit cleanly \u2014 /exit or ^C twice, Claude exits",
         "Tests use TerminalHarness with waitFor() for timing-sensitive assertions",
         "Tests gated with skipUnless(hasClaudeInstalled())",
         "Typecheck passes",
@@ -1808,7 +1808,7 @@
       ],
       "priority": 103,
       "passes": false,
-      "notes": "CLI E2E Phase 6 — final phase. Depends on US-080 (TerminalHarness), US-095 (isTTY). Claude Code uses Ink (React-based TUI) with cursor movement, screen clearing, and color codes. Known spawn stall risk."
+      "notes": "CLI E2E Phase 6 \u2014 final phase. Depends on US-080 (TerminalHarness), US-095 (isTTY). Claude Code uses Ink (React-based TUI) with cursor movement, screen clearing, and color codes. Known spawn stall risk."
     }
   ]
 }

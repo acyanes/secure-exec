@@ -232,6 +232,75 @@ describe("sandbox escape security", () => {
 		expect(results.debugContextEscaped).toBe(false);
 	});
 
+	it("path traversal with ../../../etc/passwd returns EACCES", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({ onStdio: capture.onStdio });
+
+		const result = await proc.exec(`
+			const fs = require('fs');
+			const results = {};
+			try {
+				fs.readFileSync('../../../etc/passwd', 'utf8');
+				results.succeeded = true;
+			} catch (e) {
+				results.succeeded = false;
+				results.code = e.code;
+			}
+			console.log(JSON.stringify(results));
+		`);
+
+		expect(result.code).toBe(0);
+		const results = JSON.parse(capture.stdout().trim());
+		expect(results.succeeded).toBe(false);
+		expect(results.code).toBe("EACCES");
+	});
+
+	it("fs.readFileSync('/proc/self/environ') returns EACCES", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({ onStdio: capture.onStdio });
+
+		const result = await proc.exec(`
+			const fs = require('fs');
+			const results = {};
+			try {
+				fs.readFileSync('/proc/self/environ', 'utf8');
+				results.succeeded = true;
+			} catch (e) {
+				results.succeeded = false;
+				results.code = e.code;
+			}
+			console.log(JSON.stringify(results));
+		`);
+
+		expect(result.code).toBe(0);
+		const results = JSON.parse(capture.stdout().trim());
+		expect(results.succeeded).toBe(false);
+		expect(results.code).toBe("EACCES");
+	});
+
+	it("fs.readFileSync with null bytes in path is rejected", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({ onStdio: capture.onStdio });
+
+		const result = await proc.exec(`
+			const fs = require('fs');
+			const results = {};
+			try {
+				fs.readFileSync('/app/test\\x00/etc/passwd', 'utf8');
+				results.succeeded = true;
+			} catch (e) {
+				results.succeeded = false;
+				results.code = e.code || 'error';
+				results.hasMessage = !!e.message;
+			}
+			console.log(JSON.stringify(results));
+		`);
+
+		expect(result.code).toBe(0);
+		const results = JSON.parse(capture.stdout().trim());
+		expect(results.succeeded).toBe(false);
+	});
+
 	it("all sandbox escape techniques fail together", async () => {
 		const capture = createConsoleCapture();
 		proc = createTestNodeRuntime({ onStdio: capture.onStdio });
