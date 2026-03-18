@@ -1830,7 +1830,7 @@
         "Tests pass"
       ],
       "priority": 108,
-      "passes": false,
+      "passes": true,
       "notes": "LOW \u2014 pty.ts:326-348 and process-table.ts:144-162. ONLCR always applied; kill() forwards arbitrary signal values."
     },
     {

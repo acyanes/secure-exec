@@ -1624,3 +1624,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - process.exit() in the bridge fires the "exit" event and throws ProcessExitError — don't bypass it with a direct throw
   - The isolate-runtime bridge-initial-globals.ts must be rebuilt via `pnpm -C packages/secure-exec-core run build:isolate-runtime` after changes
 ---
+
+## 2026-03-18 04:10 - US-138
+- Added `opost` and `onlcr` boolean fields to `Termios` interface and `defaultTermios()` (both default true, POSIX standard)
+- Modified `PtyManager.processOutput()` to skip ONLCR CR insertion when `opost` or `onlcr` is disabled in termios
+- Updated `getTermios`/`setTermios` to handle the new fields
+- Added signal range validation to `ProcessTable.kill()`: EINVAL for signal < 0 or > 64, signal 0 = existence check (no delivery)
+- Files changed: packages/kernel/src/types.ts, packages/kernel/src/pty.ts, packages/kernel/src/process-table.ts, packages/kernel/test/process-table.test.ts, packages/kernel/test/kernel-integration.test.ts
+- **Learnings for future iterations:**
+  - `processOutput` was a pure function — needed to thread `PtyState` through to access termios flags
+  - POSIX ONLCR requires BOTH opost (master gate) AND onlcr (specific flag) to be enabled
+  - Signal 0 in kill() is a POSIX existence check — must NOT call driverProcess.kill, just verify the process exists
+  - Termios fields flow: types.ts interface → pty.ts getTermios/setTermios → kernel.ts tcgetattr/tcsetattr (Partial<Termios>)
+---
