@@ -1148,3 +1148,27 @@ PRD: ralph/kernel-hardening (46 stories)
   - Default createTestNodeRuntime() has no fs permissions (deny-by-default) → all fs reads return EACCES, which is the correct security behavior for path traversal tests
   - sandbox-escape.test.ts is the right place for security boundary tests (path traversal, null bytes, escape techniques)
 ---
+
+## 2026-03-17 - US-070
+- Added env variable leakage tests for Node runtime
+- Files changed:
+  - packages/secure-exec/tests/runtime-driver/node/env-leakage.test.ts (new)
+  - scripts/ralph/prd.json — marked US-070 as passes: true
+- **Learnings for future iterations:**
+  - ExecResult has no stdout field — must use onStdio hook to capture console output, following createConsoleCapture() pattern used across other node runtime-driver tests
+  - createTestNodeRuntime() from test-utils.ts accepts permissions and processConfig directly — simpler than manually constructing NodeRuntime + createNodeDriver
+  - Without env permissions (default), filterEnv returns {} — process.env inside sandbox is empty; with allowAllEnv + processConfig.env, all passed vars are accessible
+  - Exec env override merges with (filtered) initial env — to test "only specified vars", create runtime without processConfig.env
+---
+
+## 2026-03-17 - US-071
+- What was implemented: Added enforcement tests for memoryLimit (V8 heap) and cpuTimeLimitMs (execution timeout)
+- Files changed:
+  - packages/secure-exec/tests/runtime-driver/node/resource-limits.test.ts (new)
+  - scripts/ralph/prd.json — marked US-071 as passes: true
+- **Learnings for future iterations:**
+  - memoryLimit is enforced by isolated-vm's V8 heap limit — set to 32MB and allocate 1MB chunks to trigger OOM (non-zero exit code)
+  - cpuTimeLimitMs produces exit code 124 and errorMessage matching /time limit/i — matches GNU timeout convention
+  - Tests are fast (~286ms total) — the V8 isolate enforces limits efficiently without needing large tolerances
+  - createTestNodeRuntime() accepts memoryLimit and cpuTimeLimitMs directly via the spread into nodeProcessOptions
+---
