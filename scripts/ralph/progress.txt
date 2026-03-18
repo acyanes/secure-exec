@@ -3,6 +3,10 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- OpenCode TUI uses kitty keyboard protocol (`?2031h`) — raw `\r` is newline, submit requires CSI u-encoded Enter (`\x1b[13u`); Ctrl+Enter is `\x1b[13;5u`
+- OpenCode TUI boot indicator: "Ask anything" placeholder in input area; also shows keyboard shortcuts (ctrl+t, tab, ctrl+p) and version number
+- OpenCode ^C behavior: empty input = exit, non-empty input = clear input; use this to test SIGINT resilience
+- vitest `it.skipIf(condition)` evaluates the condition at test REGISTRATION time (synchronously), not at runtime; use `ctx.skip()` inside the test body for conditions set in `beforeAll`
 - OpenCode is a Bun binary — ANTHROPIC_BASE_URL causes hangs during plugin init from temp dirs; works when run from project dirs with cached plugins; use probeBaseUrlRedirect() to detect at runtime
 - OpenCode `run --format json` emits NDJSON events; `--format default` may also emit JSON when piped (non-TTY); always check for text content rather than asserting non-JSON
 - OpenCode makes a title generation request before the main prompt — mock server queues need extra response items to account for title requests
@@ -1947,4 +1951,24 @@ PRD: ralph/kernel-hardening (46 stories)
   - SDK error handling: non-throwing mode (default) returns { data, error } — check result.error for HTTP errors
   - OPENCODE_CONFIG_CONTENT env var passes JSON config to opencode binary (used by SDK's createOpencodeServer)
   - opencode serve needs project context — init git repo + package.json in work directory
+---
+
+## 2026-03-18 - US-101
+- Implemented OpenCode interactive PTY tests
+- Created `packages/secure-exec/tests/cli-tools/opencode-interactive.test.ts` with 5 tests:
+  1. TUI renders — waits for "Ask anything" placeholder, verifies keyboard shortcut hints
+  2. Input area works — types text, verifies it appears on screen
+  3. Submit shows response — types prompt + kitty Enter, verifies mock LLM response renders
+  4. ^C interrupts — types text, sends ^C, verifies input cleared (not exited)
+  5. Exit cleanly — sends ^C twice, verifies clean exit (code 0 or 130)
+- Uses PtyHarness pattern (via `script -qefc`) consistent with pi-interactive.test.ts
+- Mock LLM server via createMockLlmServer with ANTHROPIC_BASE_URL redirect
+- Gated with `skipIf(!hasOpenCodeBinary())`; mock-dependent tests use runtime `ctx.skip()`
+- Files changed: packages/secure-exec/tests/cli-tools/opencode-interactive.test.ts (new)
+- **Learnings for future iterations:**
+  - OpenCode enables kitty keyboard protocol (`\x1b[?2031h`) — raw `\r` creates newline, not submit; use `\x1b[13u` (CSI u-encoded Enter) to submit prompts
+  - `it.skipIf(condition)` evaluates eagerly at registration time — `beforeAll`-set variables are always undefined; use `ctx.skip()` inside the test body instead
+  - OpenCode ^C behavior is context-dependent: empty input = exit (code 0), non-empty input = clear input — leverage this for interrupt testing
+  - ANTHROPIC_BASE_URL mock redirect probe needs ≥20s timeout (first-run SQLite migration in fresh XDG_DATA_HOME takes time)
+  - OpenCode TUI boot is fast (~2-3s) once database is initialized; "Ask anything" is the reliable boot indicator
 ---

@@ -2376,7 +2376,7 @@
         "Tests pass"
       ],
       "priority": 139,
-      "passes": false,
+      "passes": true,
       "notes": "CLI E2E Phase 4. Depends on US-080 (TerminalHarness), US-095 (isTTY). OpenCode uses OpenTUI (TypeScript + Zig) with SolidJS \u2014 may render non-standard ANSI sequences. Use waitFor() with content assertions, tighten after empirical capture. API tokens (ANTHROPIC_API_KEY, OPENAI_API_KEY) available at ~/misc/env.txt \u2014 source it before running tests that need real or mock-pointed API keys."
     },
     {
