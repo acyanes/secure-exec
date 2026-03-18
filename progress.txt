@@ -1224,3 +1224,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - MockRuntimeDriver from kernel/test/helpers.ts is reusable in integration tests (import via relative path)
   - To test pipe EOF with real runtimes, mount both MockRuntimeDriver (as pipe host) and the real runtime, use ki.spawn with stdoutFd override
 ---
+
+## 2026-03-17 - US-078
+- Added complete device layer behavior tests
+- Files changed: packages/kernel/test/device-layer.test.ts
+- Fixed /dev/zero write test to actually write to /dev/zero (was testing /dev/null instead)
+- Added /dev/stdout read fallthrough test (stdin and stderr already had tests)
+- Added /dev/stdout and /dev/stderr write passthrough tests
+- All 21 device-layer tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - Device layer only intercepts writes to /dev/null (discard) — writes to other device paths pass through to backing VFS
+  - readFile for /dev/stdin, /dev/stdout, /dev/stderr passes through to backing VFS (not intercepted)
+  - TestFileSystem supports these passthrough operations for testing
+---
