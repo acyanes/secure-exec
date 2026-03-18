@@ -2016,3 +2016,22 @@ PRD: ralph/kernel-hardening (46 stories)
   - Some stories may already be implemented but not marked as passing — always check existing code/tests first
   - Resource budget tests are in packages/secure-exec/tests/runtime-driver/node/resource-budgets.test.ts
 ---
+
+## 2026-03-18 - US-146, US-147, US-148, US-149, US-150, US-152, US-153, US-154, US-155, US-156
+- Batch-verified: all 10 stories already fully implemented and tests passing
+- US-146: maxHandles cap in active-handles.ts + bridge, tests in resource-budgets.test.ts
+- US-147: LD_PRELOAD/NODE_OPTIONS filtering in spawn env, tests in env-leakage.test.ts
+- US-148: SSRF private IP blocking, tests in ssrf-protection.test.ts (37 tests)
+- US-149: Date.now frozen (configurable:false), timing mitigation tests in index.test.ts
+- US-150: HTTP server ownership enforcement, tests in bridge-hardening.test.ts
+- US-152: process.env mutation isolation, tests in env-leakage.test.ts
+- US-153: SharedArrayBuffer removal, tests in index.test.ts
+- US-154: process.binding throws, tests in sandbox-escape.test.ts
+- US-155: HTTP body size caps (50MB), tests in payload-limits.test.ts + bridge-hardening.test.ts
+- US-156: Stdout rate limiting, tests in maxbuffer.test.ts
+- No code changes needed — marked passes: true
+- Files changed: scripts/ralph/prd.json
+- **Learnings for future iterations:**
+  - Many hardening stories were implemented in earlier iterations without marking passes:true — always batch-verify
+  - Security test files are well-organized by domain: env-leakage, ssrf-protection, bridge-hardening, sandbox-escape, payload-limits, maxbuffer
+---

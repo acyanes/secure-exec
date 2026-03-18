@@ -2509,7 +2509,7 @@
         "Tests pass"
       ],
       "priority": 146,
-      "passes": false,
+      "passes": true,
       "notes": "Audit H4 (partial gap). US-126 caps FD table and event listeners but not the active-handles.ts map. Spawning thousands of child processes or timers grows the map without bound."
     },
     {
@@ -2525,7 +2525,7 @@
         "Tests pass"
       ],
       "priority": 147,
-      "passes": false,
+      "passes": true,
       "notes": "Audit H5 \u2014 HIGH. execution-driver.ts:1162-1164. filterEnv is applied to process.env at init time but NOT to the env option passed from sandbox code to child_process.spawn. Combined with M8 (process.env mutations), sandbox code can inject LD_PRELOAD into spawned processes."
     },
     {
@@ -2543,7 +2543,7 @@
         "Tests pass"
       ],
       "priority": 148,
-      "passes": false,
+      "passes": true,
       "notes": "Audit H6 \u2014 HIGH. permissions.ts:228-234, node/driver.ts:241-278. Permission checks validate the original URL but fetch follows redirects by default. A URL that 302-redirects to http://169.254.169.254/ passes the check."
     },
     {
@@ -2561,7 +2561,7 @@
         "Tests pass"
       ],
       "priority": 149,
-      "passes": false,
+      "passes": true,
       "notes": "Audit M2 \u2014 MEDIUM. apply-timing-mitigation-freeze.ts:13-17. Date.now is set with writable: true, configurable: true. Sandbox code can restore it trivially."
     },
     {
@@ -2576,7 +2576,7 @@
         "Tests pass"
       ],
       "priority": 150,
-      "passes": false,
+      "passes": true,
       "notes": "Audit M6 \u2014 MEDIUM. permissions.ts:223-226. httpServerClose is forwarded without permission check. Could allow closing other sandboxes' servers if server IDs are guessable."
     },
     {
@@ -2608,7 +2608,7 @@
         "Tests pass"
       ],
       "priority": 152,
-      "passes": false,
+      "passes": true,
       "notes": "Audit M8 \u2014 MEDIUM. process.ts:519-520, child-process.ts:447-448. process.env mutations are unrestricted and combined with H5, process.env.LD_PRELOAD then execSync('cmd') passes the injected variable. Related to US-147."
     },
     {
@@ -2623,7 +2623,7 @@
         "Tests pass"
       ],
       "priority": 153,
-      "passes": false,
+      "passes": true,
       "notes": "Audit L2 \u2014 LOW. apply-timing-mitigation-freeze.ts:42-44. Current deletion is a simple delete which may not work if SAB was already captured by sandbox code."
     },
     {
@@ -2639,7 +2639,7 @@
         "Tests pass"
       ],
       "priority": 154,
-      "passes": false,
+      "passes": true,
       "notes": "Audit L3 \u2014 LOW. process.ts:760-784. Current stubs return mock objects. While not directly exploitable, they obscure the sandbox boundary."
     },
     {
@@ -2657,7 +2657,7 @@
         "Tests pass"
       ],
       "priority": 155,
-      "passes": false,
+      "passes": true,
       "notes": "Audit L4 + L7 \u2014 LOW. network.ts:649 (ClientRequest._body unbounded string concat) and network.ts:923 (ServerResponseBridge._chunks unbounded array). Both grow without limit from sandbox code."
     },
     {
@@ -2673,7 +2673,7 @@
         "Tests pass"
       ],
       "priority": 156,
-      "passes": false,
+      "passes": true,
       "notes": "Audit L5 \u2014 LOW. browser/worker.ts:56, python/driver.ts:198-208. Neither worker rate-limits stdout/stderr messages, allowing sandbox code to flood the host message channel."
     },
     {
