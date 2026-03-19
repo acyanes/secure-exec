@@ -1975,3 +1975,12 @@ PRD: ralph/kernel-hardening (46 stories)
 - Files changed:
   - prd.json — marked US-152 as passes: true
 ---
+
+## 2026-03-18 - US-153
+- What was implemented: Verified SharedArrayBuffer deletion hardening already in place
+- Prototype neutered (byteLength, slice, grow, maxByteLength, growable → throwing getters)
+- Global locked with configurable:false, writable:false, value:undefined
+- Tests in index.test.ts cover: typeof === 'undefined', defineProperty restoration fails, saved reference non-functional
+- Files changed:
+  - prd.json — marked US-153 as passes: true
+---
