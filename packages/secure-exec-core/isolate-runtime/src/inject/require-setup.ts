@@ -239,6 +239,102 @@
 	          return result;
 	        }
 
+        if (name === 'crypto') {
+          // Overlay host-backed createHash on top of crypto-browserify polyfill
+          if (typeof _cryptoHashDigest !== 'undefined') {
+            function SandboxHash(algorithm) {
+              this._algorithm = algorithm;
+              this._chunks = [];
+            }
+            SandboxHash.prototype.update = function update(data, inputEncoding) {
+              if (typeof data === 'string') {
+                this._chunks.push(Buffer.from(data, inputEncoding || 'utf8'));
+              } else {
+                this._chunks.push(Buffer.from(data));
+              }
+              return this;
+            };
+            SandboxHash.prototype.digest = function digest(encoding) {
+              var combined = Buffer.concat(this._chunks);
+              var resultBase64 = _cryptoHashDigest.applySync(undefined, [
+                this._algorithm,
+                combined.toString('base64'),
+              ]);
+              var resultBuffer = Buffer.from(resultBase64, 'base64');
+              if (!encoding || encoding === 'buffer') return resultBuffer;
+              return resultBuffer.toString(encoding);
+            };
+            SandboxHash.prototype.copy = function copy() {
+              var c = new SandboxHash(this._algorithm);
+              c._chunks = this._chunks.slice();
+              return c;
+            };
+            // Minimal stream interface
+            SandboxHash.prototype.write = function write(data, encoding) {
+              this.update(data, encoding);
+              return true;
+            };
+            SandboxHash.prototype.end = function end(data, encoding) {
+              if (data) this.update(data, encoding);
+            };
+            result.createHash = function createHash(algorithm) {
+              return new SandboxHash(algorithm);
+            };
+            result.Hash = SandboxHash;
+          }
+
+          // Overlay host-backed createHmac on top of crypto-browserify polyfill
+          if (typeof _cryptoHmacDigest !== 'undefined') {
+            function SandboxHmac(algorithm, key) {
+              this._algorithm = algorithm;
+              if (typeof key === 'string') {
+                this._key = Buffer.from(key, 'utf8');
+              } else {
+                this._key = Buffer.from(key);
+              }
+              this._chunks = [];
+            }
+            SandboxHmac.prototype.update = function update(data, inputEncoding) {
+              if (typeof data === 'string') {
+                this._chunks.push(Buffer.from(data, inputEncoding || 'utf8'));
+              } else {
+                this._chunks.push(Buffer.from(data));
+              }
+              return this;
+            };
+            SandboxHmac.prototype.digest = function digest(encoding) {
+              var combined = Buffer.concat(this._chunks);
+              var resultBase64 = _cryptoHmacDigest.applySync(undefined, [
+                this._algorithm,
+                this._key.toString('base64'),
+                combined.toString('base64'),
+              ]);
+              var resultBuffer = Buffer.from(resultBase64, 'base64');
+              if (!encoding || encoding === 'buffer') return resultBuffer;
+              return resultBuffer.toString(encoding);
+            };
+            SandboxHmac.prototype.copy = function copy() {
+              var c = new SandboxHmac(this._algorithm, this._key);
+              c._chunks = this._chunks.slice();
+              return c;
+            };
+            // Minimal stream interface
+            SandboxHmac.prototype.write = function write(data, encoding) {
+              this.update(data, encoding);
+              return true;
+            };
+            SandboxHmac.prototype.end = function end(data, encoding) {
+              if (data) this.update(data, encoding);
+            };
+            result.createHmac = function createHmac(algorithm, key) {
+              return new SandboxHmac(algorithm, key);
+            };
+            result.Hmac = SandboxHmac;
+          }
+
+          return result;
+        }
+
         if (name === 'path') {
           if (result.win32 === null || result.win32 === undefined) {
             result.win32 = result.posix || result;

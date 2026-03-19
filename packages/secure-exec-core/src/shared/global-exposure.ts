@@ -144,6 +144,16 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host entropy bridge reference for crypto.randomUUID.",
 	},
 	{
+		name: "_cryptoHashDigest",
+		classification: "hardened",
+		rationale: "Host crypto bridge reference for createHash digest computation.",
+	},
+	{
+		name: "_cryptoHmacDigest",
+		classification: "hardened",
+		rationale: "Host crypto bridge reference for createHmac digest computation.",
+	},
+	{
 		name: "_fsReadFile",
 		classification: "hardened",
 		rationale: "Host filesystem bridge reference.",

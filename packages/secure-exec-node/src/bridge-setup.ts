@@ -1,5 +1,5 @@
 import ivm from "isolated-vm";
-import { randomFillSync, randomUUID } from "node:crypto";
+import { randomFillSync, randomUUID, createHash, createHmac } from "node:crypto";
 import {
 	getInitialBridgeGlobalsSetupCode,
 	getIsolateRuntimeSource,
@@ -264,6 +264,28 @@ export async function setupRequire(
 	});
 	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoRandomFill, cryptoRandomFillRef);
 	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoRandomUuid, cryptoRandomUuidRef);
+
+	// Set up host crypto references for createHash/createHmac.
+	// Guest accumulates update() data, sends base64 to host for digest.
+	const cryptoHashDigestRef = new ivm.Reference(
+		(algorithm: string, dataBase64: string) => {
+			const data = Buffer.from(dataBase64, "base64");
+			const hash = createHash(algorithm);
+			hash.update(data);
+			return hash.digest("base64");
+		},
+	);
+	const cryptoHmacDigestRef = new ivm.Reference(
+		(algorithm: string, keyBase64: string, dataBase64: string) => {
+			const key = Buffer.from(keyBase64, "base64");
+			const data = Buffer.from(dataBase64, "base64");
+			const hmac = createHmac(algorithm, key);
+			hmac.update(data);
+			return hmac.digest("base64");
+		},
+	);
+	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoHashDigest, cryptoHashDigestRef);
+	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoHmacDigest, cryptoHmacDigestRef);
 
 	// Set up fs References (stubbed if filesystem is disabled)
 	{
