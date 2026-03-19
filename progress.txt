@@ -1966,3 +1966,12 @@ PRD: ralph/kernel-hardening (46 stories)
 - Files changed:
   - prd.json — marked US-151 as passes: true
 ---
+
+## 2026-03-18 - US-152
+- What was implemented: Verified process.env mutation isolation already in place
+- Sandbox process.env is a copy; mutations don't reach host or child processes
+- stripDangerousEnv applied on every spawn; sandbox env mutations are local-only
+- Tests in env-leakage.test.ts cover: LD_PRELOAD not reaching children, FOO visible locally but not in child default env
+- Files changed:
+  - prd.json — marked US-152 as passes: true
+---

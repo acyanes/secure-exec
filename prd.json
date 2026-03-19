@@ -2608,7 +2608,7 @@
         "Tests pass"
       ],
       "priority": 152,
-      "passes": false,
+      "passes": true,
       "notes": "Audit M8 \u2014 MEDIUM. process.ts:519-520, child-process.ts:447-448. process.env mutations are unrestricted and combined with H5, process.env.LD_PRELOAD then execSync('cmd') passes the injected variable. Related to US-147."
     },
     {
