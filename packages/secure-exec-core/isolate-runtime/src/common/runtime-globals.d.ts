@@ -1,8 +1,11 @@
 export {};
 
 import type {
+	CryptoGenerateKeyPairSyncBridgeRef,
 	CryptoRandomFillBridgeRef,
 	CryptoRandomUuidBridgeRef,
+	CryptoSignBridgeRef,
+	CryptoVerifyBridgeRef,
 	DynamicImportBridgeRef,
 	FsChmodBridgeRef,
 	FsChownBridgeRef,
@@ -83,6 +86,9 @@ declare global {
 	var _scheduleTimer: ScheduleTimerBridgeRef;
 	var _cryptoRandomFill: CryptoRandomFillBridgeRef;
 	var _cryptoRandomUUID: CryptoRandomUuidBridgeRef;
+	var _cryptoSign: CryptoSignBridgeRef;
+	var _cryptoVerify: CryptoVerifyBridgeRef;
+	var _cryptoGenerateKeyPairSync: CryptoGenerateKeyPairSyncBridgeRef;
 	var _networkFetchRaw: NetworkFetchRawBridgeRef;
 	var _networkDnsLookupRaw: NetworkDnsLookupRawBridgeRef;
 	var _networkHttpRequestRaw: NetworkHttpRequestRawBridgeRef;

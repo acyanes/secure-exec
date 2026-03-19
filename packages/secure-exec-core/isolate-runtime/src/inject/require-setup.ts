@@ -616,6 +616,136 @@
             result.Decipheriv = SandboxDecipher;
           }
 
+          // Overlay host-backed sign/verify
+          if (typeof _cryptoSign !== 'undefined') {
+            result.sign = function sign(algorithm, data, key) {
+              var dataBuf = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
+              var keyPem;
+              if (typeof key === 'string') {
+                keyPem = key;
+              } else if (key && typeof key === 'object' && key._pem) {
+                keyPem = key._pem;
+              } else if (Buffer.isBuffer(key)) {
+                keyPem = key.toString('utf8');
+              } else {
+                keyPem = String(key);
+              }
+              var sigBase64 = _cryptoSign.applySync(undefined, [
+                algorithm,
+                dataBuf.toString('base64'),
+                keyPem,
+              ]);
+              return Buffer.from(sigBase64, 'base64');
+            };
+          }
+
+          if (typeof _cryptoVerify !== 'undefined') {
+            result.verify = function verify(algorithm, data, key, signature) {
+              var dataBuf = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
+              var keyPem;
+              if (typeof key === 'string') {
+                keyPem = key;
+              } else if (key && typeof key === 'object' && key._pem) {
+                keyPem = key._pem;
+              } else if (Buffer.isBuffer(key)) {
+                keyPem = key.toString('utf8');
+              } else {
+                keyPem = String(key);
+              }
+              var sigBuf = typeof signature === 'string' ? Buffer.from(signature, 'base64') : Buffer.from(signature);
+              return _cryptoVerify.applySync(undefined, [
+                algorithm,
+                dataBuf.toString('base64'),
+                keyPem,
+                sigBuf.toString('base64'),
+              ]);
+            };
+          }
+
+          // Overlay host-backed generateKeyPairSync/generateKeyPair and KeyObject helpers
+          if (typeof _cryptoGenerateKeyPairSync !== 'undefined') {
+            function SandboxKeyObject(type, pem) {
+              this.type = type;
+              this._pem = pem;
+            }
+            SandboxKeyObject.prototype.export = function exportKey(options) {
+              if (!options || options.format === 'pem') {
+                return this._pem;
+              }
+              if (options.format === 'der') {
+                // Strip PEM header/footer and decode base64
+                var lines = this._pem.split('\n').filter(function(l) { return l && l.indexOf('-----') !== 0; });
+                return Buffer.from(lines.join(''), 'base64');
+              }
+              return this._pem;
+            };
+            SandboxKeyObject.prototype.toString = function() { return this._pem; };
+
+            result.generateKeyPairSync = function generateKeyPairSync(type, options) {
+              var opts = {};
+              if (options) {
+                if (options.modulusLength !== undefined) opts.modulusLength = options.modulusLength;
+                if (options.publicExponent !== undefined) opts.publicExponent = options.publicExponent;
+                if (options.namedCurve !== undefined) opts.namedCurve = options.namedCurve;
+                if (options.divisorLength !== undefined) opts.divisorLength = options.divisorLength;
+                if (options.primeLength !== undefined) opts.primeLength = options.primeLength;
+              }
+              var resultJson = _cryptoGenerateKeyPairSync.applySync(undefined, [
+                type,
+                JSON.stringify(opts),
+              ]);
+              var parsed = JSON.parse(resultJson);
+
+              // Return KeyObjects if no encoding specified, PEM strings otherwise
+              if (options && options.publicKeyEncoding && options.privateKeyEncoding) {
+                return { publicKey: parsed.publicKey, privateKey: parsed.privateKey };
+              }
+              return {
+                publicKey: new SandboxKeyObject('public', parsed.publicKey),
+                privateKey: new SandboxKeyObject('private', parsed.privateKey),
+              };
+            };
+
+            result.generateKeyPair = function generateKeyPair(type, options, callback) {
+              try {
+                var pair = result.generateKeyPairSync(type, options);
+                callback(null, pair.publicKey, pair.privateKey);
+              } catch (e) {
+                callback(e);
+              }
+            };
+
+            result.createPublicKey = function createPublicKey(key) {
+              if (typeof key === 'string') {
+                return new SandboxKeyObject('public', key);
+              }
+              if (key && typeof key === 'object' && key._pem) {
+                return new SandboxKeyObject('public', key._pem);
+              }
+              if (key && typeof key === 'object' && key.key) {
+                var keyData = typeof key.key === 'string' ? key.key : key.key.toString('utf8');
+                return new SandboxKeyObject('public', keyData);
+              }
+              return new SandboxKeyObject('public', String(key));
+            };
+
+            result.createPrivateKey = function createPrivateKey(key) {
+              if (typeof key === 'string') {
+                return new SandboxKeyObject('private', key);
+              }
+              if (key && typeof key === 'object' && key._pem) {
+                return new SandboxKeyObject('private', key._pem);
+              }
+              if (key && typeof key === 'object' && key.key) {
+                var keyData = typeof key.key === 'string' ? key.key : key.key.toString('utf8');
+                return new SandboxKeyObject('private', keyData);
+              }
+              return new SandboxKeyObject('private', String(key));
+            };
+
+            result.KeyObject = SandboxKeyObject;
+          }
+
           return result;
         }
 

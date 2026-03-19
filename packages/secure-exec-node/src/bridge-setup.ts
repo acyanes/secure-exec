@@ -8,6 +8,11 @@ import {
 	scryptSync,
 	createCipheriv,
 	createDecipheriv,
+	sign,
+	verify,
+	generateKeyPairSync,
+	createPublicKey,
+	createPrivateKey,
 } from "node:crypto";
 import {
 	getInitialBridgeGlobalsSetupCode,
@@ -379,6 +384,57 @@ export async function setupRequire(
 	await jail.set(
 		HOST_BRIDGE_GLOBAL_KEYS.cryptoDecipheriv,
 		cryptoDecipherivRef,
+	);
+
+	// Set up host crypto references for sign/verify and key generation.
+	// sign: (algorithm, dataBase64, keyPem) → signatureBase64
+	const cryptoSignRef = new ivm.Reference(
+		(algorithm: string, dataBase64: string, keyPem: string) => {
+			const data = Buffer.from(dataBase64, "base64");
+			const key = createPrivateKey(keyPem);
+			const signature = sign(algorithm, data, key);
+			return signature.toString("base64");
+		},
+	);
+	// verify: (algorithm, dataBase64, keyPem, signatureBase64) → boolean
+	const cryptoVerifyRef = new ivm.Reference(
+		(
+			algorithm: string,
+			dataBase64: string,
+			keyPem: string,
+			signatureBase64: string,
+		) => {
+			const data = Buffer.from(dataBase64, "base64");
+			const key = createPublicKey(keyPem);
+			const signature = Buffer.from(signatureBase64, "base64");
+			return verify(algorithm, data, key, signature);
+		},
+	);
+	// generateKeyPairSync: (type, optionsJson) → JSON { publicKey, privateKey }
+	const cryptoGenerateKeyPairSyncRef = new ivm.Reference(
+		(type: string, optionsJson: string) => {
+			const options = JSON.parse(optionsJson);
+			// Always produce PEM output for cross-boundary transfer
+			const genOptions = {
+				...options,
+				publicKeyEncoding: { type: "spki" as const, format: "pem" as const },
+				privateKeyEncoding: {
+					type: "pkcs8" as const,
+					format: "pem" as const,
+				},
+			};
+			const { publicKey, privateKey } = generateKeyPairSync(
+				type as any,
+				genOptions as any,
+			);
+			return JSON.stringify({ publicKey, privateKey });
+		},
+	);
+	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoSign, cryptoSignRef);
+	await jail.set(HOST_BRIDGE_GLOBAL_KEYS.cryptoVerify, cryptoVerifyRef);
+	await jail.set(
+		HOST_BRIDGE_GLOBAL_KEYS.cryptoGenerateKeyPairSync,
+		cryptoGenerateKeyPairSyncRef,
 	);
 
 	// Set up fs References (stubbed if filesystem is disabled)

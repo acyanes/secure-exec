@@ -2186,3 +2186,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - bridge-registry-policy.test.ts enforces that ALL HOST_BRIDGE_GLOBAL_KEYS have matching NODE_CUSTOM_GLOBAL_INVENTORY entries — must add inventory entries for every new bridge key
   - _cryptoPbkdf2 and _cryptoScrypt were missing from inventory (pre-existing gap) — fixed in this commit
 ---
+
+## 2026-03-18 - US-172
+- What was implemented: crypto.sign, crypto.verify, crypto.generateKeyPairSync, crypto.generateKeyPair, crypto.createPublicKey, crypto.createPrivateKey, and KeyObject in bridge
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts — added CryptoSignBridgeRef, CryptoVerifyBridgeRef, CryptoGenerateKeyPairSyncBridgeRef types and HOST_BRIDGE_GLOBAL_KEYS entries
+  - packages/secure-exec-core/src/shared/global-exposure.ts — added _cryptoSign, _cryptoVerify, _cryptoGenerateKeyPairSync to NODE_CUSTOM_GLOBAL_INVENTORY
+  - packages/secure-exec-core/isolate-runtime/src/common/runtime-globals.d.ts — added global type declarations for new bridge refs
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added sandbox-side sign, verify, generateKeyPairSync, generateKeyPair, createPublicKey, createPrivateKey, SandboxKeyObject
+  - packages/secure-exec-node/src/bridge-setup.ts — added host-side ivm.Reference implementations using Node.js crypto sign/verify/generateKeyPairSync/createPublicKey/createPrivateKey
+  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 7 tests: RSA sign/verify roundtrip, EC key pair signing, PEM encoding output, async generateKeyPair, createPublicKey/createPrivateKey from PEM, KeyObject.export, tamper rejection
+- **Learnings for future iterations:**
+  - Key material crosses isolate boundary as PEM strings (not binary) — host always generates PEM via spki/pkcs8 encoding
+  - SandboxKeyObject stores PEM as _pem property; sign/verify on sandbox side extract _pem to pass to host bridge
+  - Host sign/verify uses createPrivateKey/createPublicKey to reconstruct KeyObjects from PEM — this handles both raw PEM strings and KeyObject-wrapped keys
+  - generateKeyPairSync returns KeyObjects by default (no encoding options) or PEM strings when publicKeyEncoding/privateKeyEncoding are specified — mirrors Node.js behavior
+  - Three bridge refs suffice for all 6 API functions: sign, verify, and generateKeyPairSync; async variants (generateKeyPair) and KeyObject constructors (createPublicKey/createPrivateKey) are handled purely on the sandbox side
+---

@@ -694,4 +694,172 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 		const exports = result.exports as any;
 		expect(exports.threw).toBe(true);
 	});
+
+	it("generateKeyPairSync('rsa', {modulusLength: 2048}), sign, verify roundtrip", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+				modulusLength: 2048,
+			});
+			const data = Buffer.from('hello world');
+			const signature = crypto.sign('sha256', data, privateKey);
+			const valid = crypto.verify('sha256', data, publicKey, signature);
+			const invalid = crypto.verify('sha256', Buffer.from('wrong'), publicKey, signature);
+			module.exports = {
+				sigIsBuffer: Buffer.isBuffer(signature),
+				sigLength: signature.length,
+				valid: valid,
+				invalid: invalid,
+				pubType: publicKey.type,
+				privType: privateKey.type,
+			};
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.sigIsBuffer).toBe(true);
+		expect(exports.sigLength).toBeGreaterThan(0);
+		expect(exports.valid).toBe(true);
+		expect(exports.invalid).toBe(false);
+		expect(exports.pubType).toBe("public");
+		expect(exports.privType).toBe("private");
+	});
+
+	it("EC key pair generation and signing", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
+				namedCurve: 'prime256v1',
+			});
+			const data = Buffer.from('EC signing test');
+			const signature = crypto.sign('sha256', data, privateKey);
+			const valid = crypto.verify('sha256', data, publicKey, signature);
+			module.exports = {
+				sigIsBuffer: Buffer.isBuffer(signature),
+				valid: valid,
+				pubType: publicKey.type,
+			};
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.sigIsBuffer).toBe(true);
+		expect(exports.valid).toBe(true);
+		expect(exports.pubType).toBe("public");
+	});
+
+	it("generateKeyPairSync with PEM encoding returns strings", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+				modulusLength: 2048,
+				publicKeyEncoding: { type: 'spki', format: 'pem' },
+				privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+			});
+			module.exports = {
+				pubIsString: typeof publicKey === 'string',
+				privIsString: typeof privateKey === 'string',
+				pubStartsWith: publicKey.startsWith('-----BEGIN PUBLIC KEY-----'),
+				privStartsWith: privateKey.startsWith('-----BEGIN PRIVATE KEY-----'),
+			};
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.pubIsString).toBe(true);
+		expect(exports.privIsString).toBe(true);
+		expect(exports.pubStartsWith).toBe(true);
+		expect(exports.privStartsWith).toBe(true);
+	});
+
+	it("generateKeyPair async variant calls callback", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			let cbResult;
+			crypto.generateKeyPair('ec', { namedCurve: 'prime256v1' }, (err, pub, priv) => {
+				cbResult = {
+					err: err,
+					pubType: pub.type,
+					privType: priv.type,
+				};
+			});
+			module.exports = cbResult;
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.err).toBeNull();
+		expect(exports.pubType).toBe("public");
+		expect(exports.privType).toBe("private");
+	});
+
+	it("createPublicKey and createPrivateKey from PEM strings", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+				modulusLength: 2048,
+				publicKeyEncoding: { type: 'spki', format: 'pem' },
+				privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+			});
+			const pubObj = crypto.createPublicKey(publicKey);
+			const privObj = crypto.createPrivateKey(privateKey);
+			const data = Buffer.from('test data');
+			const sig = crypto.sign('sha256', data, privObj);
+			const valid = crypto.verify('sha256', data, pubObj, sig);
+			module.exports = {
+				pubType: pubObj.type,
+				privType: privObj.type,
+				valid: valid,
+			};
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.pubType).toBe("public");
+		expect(exports.privType).toBe("private");
+		expect(exports.valid).toBe(true);
+	});
+
+	it("KeyObject.export returns PEM by default", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const { publicKey } = crypto.generateKeyPairSync('ec', {
+				namedCurve: 'prime256v1',
+			});
+			const pem = publicKey.export({ type: 'spki', format: 'pem' });
+			module.exports = {
+				isString: typeof pem === 'string',
+				startsWith: pem.startsWith('-----BEGIN PUBLIC KEY-----'),
+			};
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.isString).toBe(true);
+		expect(exports.startsWith).toBe(true);
+	});
+
+	it("sign/verify rejects tampered data", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+				modulusLength: 2048,
+			});
+			const data = Buffer.from('original message');
+			const signature = crypto.sign('sha256', data, privateKey);
+			const tampered = Buffer.from('tampered message');
+			const valid = crypto.verify('sha256', tampered, publicKey, signature);
+			module.exports = { valid: valid };
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect((result.exports as any).valid).toBe(false);
+	});
 }

@@ -174,6 +174,21 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host crypto bridge reference for createDecipheriv decryption.",
 	},
 	{
+		name: "_cryptoSign",
+		classification: "hardened",
+		rationale: "Host crypto bridge reference for sign operations.",
+	},
+	{
+		name: "_cryptoVerify",
+		classification: "hardened",
+		rationale: "Host crypto bridge reference for verify operations.",
+	},
+	{
+		name: "_cryptoGenerateKeyPairSync",
+		classification: "hardened",
+		rationale: "Host crypto bridge reference for generateKeyPairSync.",
+	},
+	{
 		name: "_fsReadFile",
 		classification: "hardened",
 		rationale: "Host filesystem bridge reference.",
