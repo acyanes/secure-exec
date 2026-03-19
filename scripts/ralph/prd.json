@@ -3274,7 +3274,7 @@
         "Tests pass (project-matrix)"
       ],
       "priority": 190,
-      "passes": false,
+      "passes": true,
       "notes": "SSE is critical for AI agent streaming (LLM token streaming, tool-use events). Exercises http.createServer, chunked transfer-encoding, keep-alive, and streaming reads."
     },
     {

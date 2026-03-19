@@ -2380,3 +2380,17 @@ PRD: ralph/kernel-hardening (46 stories)
   - uuid v5 with fixed namespace+name produces deterministic output safe for exact comparison
   - uuid 11.1.0 works as ESM in sandbox with no special handling; exercises crypto.getRandomValues path
 ---
+
+## 2026-03-18 - US-190
+- What was implemented: SSE (Server-Sent Events) streaming project-matrix fixture
+- Files changed:
+  - packages/secure-exec/tests/projects/sse-streaming-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/sse-streaming-pass/package.json — no external deps (uses only Node builtins)
+  - packages/secure-exec/tests/projects/sse-streaming-pass/src/index.js — SSE server + manual text/event-stream parser
+  - docs/nodejs-compatibility.mdx — added sse-streaming to Tested Packages table
+- **Learnings for future iterations:**
+  - SSE fixtures need no external deps — http.createServer + manual parsing covers the full SSE protocol
+  - SSE events are separated by double newlines; multi-line data fields join with \n (per spec)
+  - All output is deterministic since server sends fixed events and closes — no randomness or timing issues
+  - The fixture exercises: http.createServer, chunked transfer-encoding, Connection: keep-alive, streaming reads
+---
