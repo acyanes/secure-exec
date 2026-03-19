@@ -116,6 +116,9 @@ PRD: ralph/kernel-hardening (46 stories)
 - Sandbox Server class needs `setTimeout`, `keepAliveTimeout`, `requestTimeout` properties for framework compatibility — added as no-ops
 - Moving a module from Unsupported (Tier 5) to Deferred (Tier 4) requires changes in: module-resolver.ts, require-setup.ts, node-stdlib.md contract, and adding BUILTIN_NAMED_EXPORTS entry
 - `declare module` for untyped npm packages must live in a `.d.ts` file (not `.ts`) — TypeScript treats it as augmentation in `.ts` files and fails with TS2665
+- Sandbox createPrivateKey/createPublicKey must validate PEM format (throw for non-PEM strings) — libraries like jsonwebtoken rely on the throw to fall through to createSecretKey
+- Sandbox createSecretKey creates SandboxKeyObject with type='secret' — needed by libraries checking key.type for symmetric algorithm validation
+- SandboxHmac must handle SandboxKeyObject as key (check key._pem property) — libraries pass KeyObject directly to crypto.createHmac()
 - Host httpRequest adapter must use `http` or `https` transport based on URL protocol — always using `https` breaks localhost HTTP requests from sandbox
 - To test sandbox http.request() client behavior, create an external nodeHttp server in the test code and have the sandbox request to it
 - NodeExecutionDriver split into 5 modules in src/node/: isolate-bootstrap.ts (types+utilities), module-resolver.ts, esm-compiler.ts, bridge-setup.ts, execution-lifecycle.ts; facade is execution-driver.ts (<300 lines)
@@ -2264,4 +2267,20 @@ PRD: ralph/kernel-hardening (46 stories)
   - ws Sender requires a socket with cork()/uncork()/write() methods — provide a complete mock when testing standalone
   - Follow pg-pass/ssh2-pass pattern for packages needing external services: test module loading, API shape, and data-processing features without real connections
   - ClientRequest in sandbox bridge lacks destroy() method — ws calls req.destroy() on failed upgrades, causing "stream.destroy is not a function" error
+---
+
+## 2026-03-18 - US-181
+- What was implemented: Added jsonwebtoken project-matrix fixture and fixed sandbox crypto key validation
+- Files changed:
+  - packages/secure-exec/tests/projects/jsonwebtoken-pass/package.json — new fixture package
+  - packages/secure-exec/tests/projects/jsonwebtoken-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/jsonwebtoken-pass/src/index.js — JWT sign/verify/decode test
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts — added createSecretKey, fixed createPrivateKey and createPublicKey to validate PEM format, updated SandboxHmac to handle SandboxKeyObject keys
+  - packages/secure-exec/tests/test-suite/node/crypto.ts — added 4 tests: createSecretKey, createPrivateKey/createPublicKey PEM validation, HMAC with KeyObject
+  - docs/nodejs-compatibility.mdx — added jsonwebtoken to Tested Packages table
+- **Learnings for future iterations:**
+  - jsonwebtoken 9.0.2 uses createPrivateKey/createSecretKey/createPublicKey to normalize key material before signing — sandbox must implement all three
+  - Sandbox createPrivateKey/createPublicKey must validate PEM format (check for '-----BEGIN') and throw for non-PEM strings — otherwise libraries that try createPrivateKey first and fall back to createSecretKey in catch blocks never reach the fallback
+  - SandboxHmac must handle SandboxKeyObject as key (check key._pem) — jwa passes KeyObject directly to crypto.createHmac()
+  - createSecretKey creates a KeyObject with type='secret' — needed for HS256/HS384/HS512 algorithm validation in jsonwebtoken
 ---

@@ -863,6 +863,73 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 		expect((result.exports as any).valid).toBe(false);
 	});
 
+	it("createSecretKey produces KeyObject with type 'secret'", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const key = crypto.createSecretKey(Buffer.from('my-secret'));
+			module.exports = {
+				type: key.type,
+				hasExport: typeof key.export === 'function',
+			};
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.type).toBe("secret");
+		expect(exports.hasExport).toBe(true);
+	});
+
+	it("createPrivateKey rejects non-PEM strings", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			let threw = false;
+			try {
+				crypto.createPrivateKey('not-a-pem-key');
+			} catch (e) {
+				threw = true;
+			}
+			module.exports = { threw };
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect((result.exports as any).threw).toBe(true);
+	});
+
+	it("createPublicKey rejects non-PEM strings", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			let threw = false;
+			try {
+				crypto.createPublicKey('not-a-pem-key');
+			} catch (e) {
+				threw = true;
+			}
+			module.exports = { threw };
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect((result.exports as any).threw).toBe(true);
+	});
+
+	it("HMAC with KeyObject secret produces correct digest", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			const key = crypto.createSecretKey(Buffer.from('hmac-key'));
+			const hmac = crypto.createHmac('sha256', key);
+			hmac.update('test data');
+			const hex = hmac.digest('hex');
+			module.exports = { hex, length: hex.length };
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.length).toBe(64);
+	});
+
 	// crypto.subtle (Web Crypto API) tests
 
 	it("subtle.digest('SHA-256', data) matches createHash output", async () => {

@@ -341,6 +341,9 @@
               this._algorithm = algorithm;
               if (typeof key === 'string') {
                 this._key = Buffer.from(key, 'utf8');
+              } else if (key && typeof key === 'object' && key._pem !== undefined) {
+                // SandboxKeyObject — extract underlying key material
+                this._key = Buffer.from(key._pem, 'utf8');
               } else {
                 this._key = Buffer.from(key);
               }
@@ -769,20 +772,37 @@
 
             result.createPublicKey = function createPublicKey(key) {
               if (typeof key === 'string') {
+                if (key.indexOf('-----BEGIN') === -1) {
+                  throw new TypeError('error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE');
+                }
                 return new SandboxKeyObject('public', key);
               }
               if (key && typeof key === 'object' && key._pem) {
+                return new SandboxKeyObject('public', key._pem);
+              }
+              if (key && typeof key === 'object' && key.type === 'private') {
+                // Node.js createPublicKey accepts private KeyObjects and extracts public key
                 return new SandboxKeyObject('public', key._pem);
               }
               if (key && typeof key === 'object' && key.key) {
                 var keyData = typeof key.key === 'string' ? key.key : key.key.toString('utf8');
                 return new SandboxKeyObject('public', keyData);
               }
+              if (Buffer.isBuffer(key)) {
+                var keyStr = key.toString('utf8');
+                if (keyStr.indexOf('-----BEGIN') === -1) {
+                  throw new TypeError('error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE');
+                }
+                return new SandboxKeyObject('public', keyStr);
+              }
               return new SandboxKeyObject('public', String(key));
             };
 
             result.createPrivateKey = function createPrivateKey(key) {
               if (typeof key === 'string') {
+                if (key.indexOf('-----BEGIN') === -1) {
+                  throw new TypeError('error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE');
+                }
                 return new SandboxKeyObject('private', key);
               }
               if (key && typeof key === 'object' && key._pem) {
@@ -792,7 +812,24 @@
                 var keyData = typeof key.key === 'string' ? key.key : key.key.toString('utf8');
                 return new SandboxKeyObject('private', keyData);
               }
+              if (Buffer.isBuffer(key)) {
+                var keyStr = key.toString('utf8');
+                if (keyStr.indexOf('-----BEGIN') === -1) {
+                  throw new TypeError('error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE');
+                }
+                return new SandboxKeyObject('private', keyStr);
+              }
               return new SandboxKeyObject('private', String(key));
+            };
+
+            result.createSecretKey = function createSecretKey(key) {
+              if (typeof key === 'string') {
+                return new SandboxKeyObject('secret', key);
+              }
+              if (Buffer.isBuffer(key) || (key instanceof Uint8Array)) {
+                return new SandboxKeyObject('secret', Buffer.from(key).toString('utf8'));
+              }
+              return new SandboxKeyObject('secret', String(key));
             };
 
             result.KeyObject = SandboxKeyObject;
