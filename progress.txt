@@ -2367,3 +2367,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - yaml package is pure JS, works out of the box in sandbox with no special handling
   - Fixture tests parse, stringify, round-trip consistency, and document API
 ---
+
+## 2026-03-18 - US-188
+- What was implemented: uuid project-matrix fixture testing UUID v4 generation/validation, deterministic v5 generation, and NIL UUID
+- Files changed:
+  - packages/secure-exec/tests/projects/uuid-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/uuid-pass/package.json — depends on uuid@11.1.0 (ESM)
+  - packages/secure-exec/tests/projects/uuid-pass/src/index.js — v4 validate, v5 deterministic, NIL validate
+  - docs/nodejs-compatibility.mdx — added uuid to Tested Packages table
+- **Learnings for future iterations:**
+  - uuid v4 output is random — only output validation results (valid/version booleans) for deterministic comparison
+  - uuid v5 with fixed namespace+name produces deterministic output safe for exact comparison
+  - uuid 11.1.0 works as ESM in sandbox with no special handling; exercises crypto.getRandomValues path
+---

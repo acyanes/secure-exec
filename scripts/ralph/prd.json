@@ -3237,7 +3237,7 @@
         "Tests pass (project-matrix)"
       ],
       "priority": 188,
-      "passes": false,
+      "passes": true,
       "notes": "uuid exercises crypto.randomUUID and crypto.getRandomValues paths."
     },
     {
