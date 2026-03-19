@@ -3107,7 +3107,7 @@
         "Tests pass (project-matrix)"
       ],
       "priority": 180,
-      "passes": false,
+      "passes": true,
       "notes": "Pure JS library. Good baseline test for ESM module resolution."
     },
     {
