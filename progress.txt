@@ -1958,3 +1958,11 @@ PRD: ralph/kernel-hardening (46 stories)
 - Files changed:
   - prd.json — marked US-150 as passes: true
 ---
+
+## 2026-03-18 - US-151
+- What was implemented: Verified browser permission callback deserialization hardening already in place
+- `validatePermissionSource()` in permission-validation.ts validates callback strings against a strict denylist before `new Function()` revival
+- 30 tests in permission-validation.test.ts cover: valid callbacks (arrow, regular, named functions), injected code rejection (eval, Function, import, require, globalThis, fetch, WebSocket, XMLHttpRequest, postMessage, importScripts, __proto__, etc.)
+- Files changed:
+  - prd.json — marked US-151 as passes: true
+---
