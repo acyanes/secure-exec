@@ -2311,3 +2311,15 @@ PRD: ralph/kernel-hardening (46 stories)
   - lodash-es individual module imports (e.g., `lodash-es/map.js`) work fine with ESM — no need to use barrel import
   - Fixture passed on first attempt with no sandbox compatibility issues
 ---
+
+## 2026-03-18 - US-184
+- What was implemented: chalk project-matrix fixture verifying terminal string styling with ANSI escape codes
+- Files changed:
+  - packages/secure-exec/tests/projects/chalk-pass/fixture.json — fixture metadata
+  - packages/secure-exec/tests/projects/chalk-pass/package.json — chalk 5.4.1 ESM dependency
+  - packages/secure-exec/tests/projects/chalk-pass/src/index.js — exercises Chalk constructor with level 1, red/green/blue/bold/underline/nested/bgYellow/italic/cyan styles
+  - docs/nodejs-compatibility.mdx — added chalk to Tested Packages table
+- **Learnings for future iterations:**
+  - chalk v5 exports `Chalk` as a named export (not `chalk.Chalk`) — use `import { Chalk } from "chalk"` and `new Chalk({ level: 1 })` for deterministic ANSI output
+  - Forcing `level: 1` ensures basic ANSI codes regardless of TTY detection, producing identical output in host and sandbox
+---

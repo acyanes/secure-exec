@@ -3172,7 +3172,7 @@
         "Tests pass (project-matrix)"
       ],
       "priority": 184,
-      "passes": false,
+      "passes": true,
       "notes": "chalk exercises process.stdout, tty detection, ANSI escape codes."
     },
     {
