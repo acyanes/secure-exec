@@ -481,8 +481,8 @@
         "Tests pass"
       ],
       "priority": 27,
-      "passes": false,
-      "notes": "No database connection in the test suite uses TLS/SSL. In production, pg connections are almost always SSL-encrypted. The pg library's SSL support goes through a different code path (tls.connect wrapper) than plain TCP. Since the tls module is deferred (Tier 4), this may require implementing enough of tls for pg's SSL to work, or documenting the limitation."
+      "passes": true,
+      "notes": "Completed. Implemented tls.connect() bridge for TLS socket upgrade. Host wraps existing net.Socket with tls.TLSSocket, re-wires bridge callbacks for decrypted data. TLSSocket forwards end/close events to wrapped raw socket (pg relies on original socket's 'close' listener for shutdown). Custom postgres-ssl.Dockerfile with self-signed cert. Fixture connects with ssl:{rejectUnauthorized:false}, queries pg_stat_ssl to verify encryption, runs CRUD through TLS. Host and sandbox produce identical output."
     },
     {
       "id": "US-028",

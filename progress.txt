@@ -102,6 +102,7 @@ PRD: ralph/kernel-hardening (46 stories)
 - Node driver stdin: buffer writeStdin data, closeStdin resolves Promise passed to exec({ stdin })
 - Permission-wrapped VFS affects mount() via populateBin() — fs deny tests must skip driver mounting; childProcess deny tests must include allowAllFs
 - Bridge process.stdin does NOT emit 'end' for empty stdin ("") — pass undefined for no-stdin case
+- TLS bridge: host wraps net.Socket with tls.TLSSocket, remove only specific event types (not removeAllListeners) — TLSSocket forward end/close to wrapped raw socket for library compat (pg relies on original socket's close listener)
 - E2E fixture tests: use NodeFileSystem({ root: projectDir }) for real npm package resolution
 - npm/npx in V8 isolate need host filesystem fallback — createHostFallbackVfs wraps kernel VFS
 - WasmVM _handleSyscall fdRead case MUST call data.set(result, 0) to write to SAB — without this, worker reads garbage
@@ -2789,4 +2790,29 @@ PRD: ralph/kernel-hardening (46 stories)
   - Named prepared statements in pg use { name, text, values } query config — the name key triggers Parse/Bind/Execute instead of SimpleQuery
   - Reusing the same name with different values exercises the prepared statement cache (pg only sends Parse once, then reuses)
   - e2e-docker fixtures are NOT tracked in the docs Tested Packages table (that's for project-matrix fixtures only)
+---
+
+## 2026-03-19 - US-027
+- Implemented tls.connect() bridge for TLS socket upgrade in the sandbox
+- Created pg-ssl e2e-docker fixture for SSL-encrypted Postgres connections
+- Files changed:
+  - packages/secure-exec-core/src/shared/bridge-contract.ts (NetSocketUpgradeTlsRaw, tlsModule)
+  - packages/secure-exec-core/src/types.ts (netSocketUpgradeTls on NetworkAdapter)
+  - packages/secure-exec-core/src/bridge/network.ts (TLSSocket class, tls module, secureConnect dispatch)
+  - packages/secure-exec-core/src/shared/permissions.ts (forward netSocketUpgradeTls)
+  - packages/secure-exec-core/isolate-runtime/src/inject/require-setup.ts (tls special handling)
+  - packages/secure-exec-core/src/generated/isolate-runtime.ts (regenerated)
+  - packages/secure-exec-node/src/driver.ts (host-side TLS upgrade, tls import)
+  - packages/secure-exec-node/src/bridge-setup.ts (netSocketUpgradeTlsRef)
+  - packages/secure-exec/tests/e2e-docker.test.ts (postgres-ssl image, SSL command args)
+  - packages/secure-exec/tests/e2e-docker/dockerfiles/postgres-ssl.Dockerfile (new)
+  - packages/secure-exec/tests/e2e-docker/pg-ssl/ (new fixture)
+- **Learnings for future iterations:**
+  - TLS bridge pattern: host wraps existing net.Socket with Node.js tls.TLSSocket, removes old bridge listeners (data/end/error/close), adds new ones to TLS socket
+  - TLSSocket must forward end/close events to the wrapped raw socket — libraries like pg add listeners to the original socket before SSL upgrade, and rely on those listeners to detect shutdown
+  - TLSSocket._connectHost/_connectPort must be copied from the original socket so _cleanup() unregisters the correct active handle
+  - NetSocket._socketId must be accessible (not private) for TLS module to share it — changed to public underscore-prefixed
+  - socket.removeAllListeners() on a raw socket breaks tls.TLSSocket wrapping — only remove specific event types (data/end/error/close/connect)
+  - Postgres SSL: use custom Dockerfile (postgres-ssl.Dockerfile) that installs openssl and generates self-signed cert; existing pg fixtures still work when server has SSL enabled (SSL is optional)
+  - pg_stat_ssl system view verifies the connection is actually encrypted — query WHERE pid = pg_backend_pid()
 ---
