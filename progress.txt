@@ -2730,3 +2730,14 @@ PRD: ralph/kernel-hardening (46 stories)
   - sftp.rename() works through the sandbox with no additional bridge work needed
   - Deterministic payload generation (byte pattern loop) is simpler and more reliable than random data for parity testing
 ---
+
+## 2026-03-19 - US-021
+- Expanded pg-connect fixture with UPDATE, DELETE, and transaction operations
+- Added: UPDATE + SELECT verify, DELETE + SELECT verify (0 rows), BEGIN/ROLLBACK + verify row not inserted, BEGIN/COMMIT + verify row inserted
+- Output JSON now includes insert/update/delete/rollback/commit sections for full parity comparison
+- Files changed: packages/secure-exec/tests/e2e-docker/pg-connect/src/index.js
+- **Learnings for future iterations:**
+  - pg wire protocol for BEGIN/COMMIT/ROLLBACK works through the sandbox net bridge without issues
+  - Parameterized queries ($1, $2) work correctly for UPDATE and DELETE through the sandbox
+  - Transaction state tracking (rollback isolation, commit persistence) passes parity between host and sandbox
+---

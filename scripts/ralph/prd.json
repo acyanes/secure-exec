@@ -375,8 +375,8 @@
         "Tests pass"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": "The current fixture only tests CREATE TABLE, INSERT, SELECT, DROP TABLE — missing UPDATE, DELETE, and all transaction semantics. If the sandbox breaks transaction state tracking, nothing catches it."
+      "passes": true,
+      "notes": "Completed. Expanded pg-connect fixture with UPDATE+verify, DELETE+verify, BEGIN/ROLLBACK (verify row not inserted), BEGIN/COMMIT (verify row inserted). All operations pass parity between host and sandbox."
     },
     {
       "id": "US-022",
