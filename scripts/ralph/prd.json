@@ -430,8 +430,8 @@
         "Tests pass"
       ],
       "priority": 24,
-      "passes": false,
-      "notes": "Zero error paths are tested for Postgres. If the sandbox swallows, reshapes, or corrupts pg error objects, nothing detects it. Error propagation is a common sandbox failure mode."
+      "passes": true,
+      "notes": "Completed. Fixture pg-errors tests 4 error scenarios: syntax error (bad SQL, code 42601), undefined table (code 42P01), unique constraint violation (code 23505), and connection refused (port 1). SQL errors serialize message/code/severity/constraint from pg protocol. Connection error serializes message only (socket-level code/errno not propagated through sandbox net bridge). Host and sandbox produce identical output."
     },
     {
       "id": "US-025",
