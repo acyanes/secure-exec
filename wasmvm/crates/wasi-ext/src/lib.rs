@@ -1,8 +1,8 @@
 //! Custom WASM import bindings for wasmVM host syscalls.
 //!
-//! Declares extern functions for `host_process` and `host_user` modules
-//! that the JS host runtime provides. These extend standard WASI with
-//! process management and user/group identity capabilities.
+//! Declares extern functions for `host_process`, `host_user`, and `host_net`
+//! modules that the JS host runtime provides. These extend standard WASI with
+//! process management, user/group identity, and TCP socket capabilities.
 //!
 //! Signatures match spec section 4.3.
 
@@ -51,8 +51,9 @@ extern "C" {
     ///
     /// Blocks (via Atomics.wait on the host side) until the child exits.
     /// `options` is reserved (pass 0). Exit status is written to `ret_status`.
+    /// The actual waited-for PID is written to `ret_pid` (important for pid=-1).
     /// Returns errno.
-    fn proc_waitpid(pid: u32, options: u32, ret_status: *mut u32) -> Errno;
+    fn proc_waitpid(pid: u32, options: u32, ret_status: *mut u32, ret_pid: *mut u32) -> Errno;
 
     /// Send a signal to a process.
     ///
@@ -91,6 +92,13 @@ extern "C" {
     ///
     /// Blocks via Atomics.wait on the host side. Returns errno.
     fn sleep_ms(milliseconds: u32) -> Errno;
+
+    /// Allocate a pseudo-terminal (PTY) master/slave pair.
+    ///
+    /// On success, the master FD is written to `ret_master_fd` and the slave FD
+    /// to `ret_slave_fd`. Both ends are installed in the process's kernel FD table.
+    /// Returns errno.
+    fn pty_open(ret_master_fd: *mut u32, ret_slave_fd: *mut u32) -> Errno;
 }
 
 // ============================================================
@@ -163,12 +171,14 @@ pub fn spawn(
 
 /// Wait for a child process to exit.
 ///
-/// Returns `Ok(exit_status)` on success, `Err(errno)` on failure.
-pub fn waitpid(pid: u32, options: u32) -> Result<u32, Errno> {
+/// Returns `Ok((exit_status, actual_pid))` on success, `Err(errno)` on failure.
+/// The actual_pid is the PID of the child that exited (relevant for pid=0xFFFFFFFF / -1).
+pub fn waitpid(pid: u32, options: u32) -> Result<(u32, u32), Errno> {
     let mut status: u32 = 0;
-    let errno = unsafe { proc_waitpid(pid, options, &mut status) };
+    let mut actual_pid: u32 = 0;
+    let errno = unsafe { proc_waitpid(pid, options, &mut status, &mut actual_pid) };
     if errno == ERRNO_SUCCESS {
-        Ok(status)
+        Ok((status, actual_pid))
     } else {
         Err(errno)
     }
@@ -259,6 +269,239 @@ pub fn host_sleep_ms(milliseconds: u32) -> Result<(), Errno> {
     let errno = unsafe { sleep_ms(milliseconds) };
     if errno == ERRNO_SUCCESS {
         Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Allocate a pseudo-terminal (PTY) master/slave pair.
+///
+/// Returns `Ok((master_fd, slave_fd))` on success, `Err(errno)` on failure.
+/// The master FD is used to read output and write input.
+/// The slave FD is passed to a child process as its stdin/stdout/stderr.
+pub fn openpty() -> Result<(u32, u32), Errno> {
+    let mut master_fd: u32 = 0;
+    let mut slave_fd: u32 = 0;
+    let errno = unsafe { pty_open(&mut master_fd, &mut slave_fd) };
+    if errno == ERRNO_SUCCESS {
+        Ok((master_fd, slave_fd))
+    } else {
+        Err(errno)
+    }
+}
+
+// ============================================================
+// host_net module — TCP socket operations
+// ============================================================
+
+#[link(wasm_import_module = "host_net")]
+extern "C" {
+    /// Create a socket.
+    ///
+    /// `domain` is the address family (e.g. AF_INET=2).
+    /// `sock_type` is the socket type (e.g. SOCK_STREAM=1).
+    /// `protocol` is the protocol (0 for default).
+    /// On success, the socket FD is written to `ret_fd`.
+    /// Returns errno.
+    fn net_socket(domain: u32, sock_type: u32, protocol: u32, ret_fd: *mut u32) -> Errno;
+
+    /// Connect a socket to a remote address.
+    ///
+    /// `addr_ptr`/`addr_len` point to a serialized address string (host:port).
+    /// Returns errno.
+    fn net_connect(fd: u32, addr_ptr: *const u8, addr_len: u32) -> Errno;
+
+    /// Send data on a connected socket.
+    ///
+    /// `buf_ptr`/`buf_len` point to the data to send.
+    /// `flags` are send flags (0 for default).
+    /// Number of bytes sent is written to `ret_sent`.
+    /// Returns errno.
+    fn net_send(fd: u32, buf_ptr: *const u8, buf_len: u32, flags: u32, ret_sent: *mut u32) -> Errno;
+
+    /// Receive data from a connected socket.
+    ///
+    /// `buf_ptr`/`buf_len` point to the receive buffer.
+    /// `flags` are recv flags (0 for default).
+    /// Number of bytes received is written to `ret_received`.
+    /// Returns errno.
+    fn net_recv(fd: u32, buf_ptr: *mut u8, buf_len: u32, flags: u32, ret_received: *mut u32) -> Errno;
+
+    /// Close a socket.
+    ///
+    /// Returns errno.
+    fn net_close(fd: u32) -> Errno;
+
+    /// Resolve a hostname to an address.
+    ///
+    /// `host_ptr`/`host_len` point to the hostname string.
+    /// `port_ptr`/`port_len` point to the port/service string.
+    /// Resolved address is written to `ret_addr` buffer with max length from `ret_addr_len`.
+    /// Actual length is written back to `ret_addr_len`.
+    /// Returns errno.
+    fn net_getaddrinfo(
+        host_ptr: *const u8,
+        host_len: u32,
+        port_ptr: *const u8,
+        port_len: u32,
+        ret_addr: *mut u8,
+        ret_addr_len: *mut u32,
+    ) -> Errno;
+
+    /// Upgrade a connected TCP socket to TLS.
+    ///
+    /// `hostname_ptr`/`hostname_len` point to the SNI hostname string.
+    /// After success, net_send/net_recv on this fd use the encrypted TLS stream.
+    /// Returns errno.
+    fn net_tls_connect(fd: u32, hostname_ptr: *const u8, hostname_len: u32) -> Errno;
+
+    /// Set a socket option.
+    ///
+    /// `level` is the protocol level (e.g. SOL_SOCKET=1).
+    /// `optname` is the option name.
+    /// `optval_ptr`/`optval_len` point to the option value.
+    /// Returns errno.
+    fn net_setsockopt(fd: u32, level: u32, optname: u32, optval_ptr: *const u8, optval_len: u32) -> Errno;
+
+    /// Poll socket FDs for readiness.
+    ///
+    /// `fds_ptr` points to a packed array of poll entries (8 bytes each):
+    ///   [fd: i32, events: i16, revents: i16] per entry.
+    /// `nfds` is the number of entries.
+    /// `timeout_ms` is the timeout: 0=non-blocking, -1=block forever, >0=milliseconds.
+    /// On return, revents fields are updated in-place and `ret_ready` receives
+    /// the number of FDs with non-zero revents.
+    /// Returns errno.
+    fn net_poll(fds_ptr: *mut u8, nfds: u32, timeout_ms: i32, ret_ready: *mut u32) -> Errno;
+}
+
+// ============================================================
+// Safe Rust wrappers — host_net
+// ============================================================
+
+/// Create a socket.
+///
+/// Returns `Ok(fd)` on success, `Err(errno)` on failure.
+pub fn socket(domain: u32, sock_type: u32, protocol: u32) -> Result<u32, Errno> {
+    let mut fd: u32 = 0;
+    let errno = unsafe { net_socket(domain, sock_type, protocol, &mut fd) };
+    if errno == ERRNO_SUCCESS {
+        Ok(fd)
+    } else {
+        Err(errno)
+    }
+}
+
+/// Connect a socket to a remote address.
+///
+/// `addr` is a serialized address string (e.g. "host:port").
+/// Returns `Ok(())` on success, `Err(errno)` on failure.
+pub fn connect(fd: u32, addr: &[u8]) -> Result<(), Errno> {
+    let errno = unsafe { net_connect(fd, addr.as_ptr(), addr.len() as u32) };
+    if errno == ERRNO_SUCCESS {
+        Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Send data on a connected socket.
+///
+/// Returns `Ok(bytes_sent)` on success, `Err(errno)` on failure.
+pub fn send(fd: u32, buf: &[u8], flags: u32) -> Result<u32, Errno> {
+    let mut sent: u32 = 0;
+    let errno = unsafe { net_send(fd, buf.as_ptr(), buf.len() as u32, flags, &mut sent) };
+    if errno == ERRNO_SUCCESS {
+        Ok(sent)
+    } else {
+        Err(errno)
+    }
+}
+
+/// Receive data from a connected socket.
+///
+/// Returns `Ok(bytes_received)` on success, `Err(errno)` on failure.
+pub fn recv(fd: u32, buf: &mut [u8], flags: u32) -> Result<u32, Errno> {
+    let mut received: u32 = 0;
+    let errno = unsafe { net_recv(fd, buf.as_mut_ptr(), buf.len() as u32, flags, &mut received) };
+    if errno == ERRNO_SUCCESS {
+        Ok(received)
+    } else {
+        Err(errno)
+    }
+}
+
+/// Close a socket.
+///
+/// Returns `Ok(())` on success, `Err(errno)` on failure.
+pub fn net_close_socket(fd: u32) -> Result<(), Errno> {
+    let errno = unsafe { net_close(fd) };
+    if errno == ERRNO_SUCCESS {
+        Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Resolve a hostname to an address.
+///
+/// Writes the resolved address into `buf` and returns the number of bytes written.
+/// Returns `Ok(len)` on success, `Err(errno)` on failure.
+pub fn getaddrinfo(host: &[u8], port: &[u8], buf: &mut [u8]) -> Result<u32, Errno> {
+    let mut len: u32 = buf.len() as u32;
+    let errno = unsafe {
+        net_getaddrinfo(
+            host.as_ptr(),
+            host.len() as u32,
+            port.as_ptr(),
+            port.len() as u32,
+            buf.as_mut_ptr(),
+            &mut len,
+        )
+    };
+    if errno == ERRNO_SUCCESS {
+        Ok(len)
+    } else {
+        Err(errno)
+    }
+}
+
+/// Set a socket option.
+///
+/// Returns `Ok(())` on success, `Err(errno)` on failure.
+pub fn setsockopt(fd: u32, level: u32, optname: u32, optval: &[u8]) -> Result<(), Errno> {
+    let errno = unsafe { net_setsockopt(fd, level, optname, optval.as_ptr(), optval.len() as u32) };
+    if errno == ERRNO_SUCCESS {
+        Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Upgrade a connected TCP socket to TLS.
+///
+/// `hostname` is used for SNI (Server Name Indication).
+/// After success, `send`/`recv` on this fd use the encrypted TLS stream.
+/// Returns `Ok(())` on success, `Err(errno)` on failure.
+pub fn tls_connect(fd: u32, hostname: &[u8]) -> Result<(), Errno> {
+    let errno = unsafe { net_tls_connect(fd, hostname.as_ptr(), hostname.len() as u32) };
+    if errno == ERRNO_SUCCESS {
+        Ok(())
+    } else {
+        Err(errno)
+    }
+}
+
+/// Poll socket FDs for readiness.
+///
+/// `fds` is a mutable slice of pollfd-like entries (8 bytes each: fd i32, events i16, revents i16).
+/// `timeout_ms` is the timeout: 0=non-blocking, -1=block forever, >0=milliseconds.
+/// Returns `Ok(ready_count)` on success, `Err(errno)` on failure.
+pub fn poll(fds: &mut [u8], nfds: u32, timeout_ms: i32) -> Result<u32, Errno> {
+    let mut ready: u32 = 0;
+    let errno = unsafe { net_poll(fds.as_mut_ptr(), nfds, timeout_ms, &mut ready) };
+    if errno == ERRNO_SUCCESS {
+        Ok(ready)
     } else {
         Err(errno)
     }

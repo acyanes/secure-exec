@@ -60,6 +60,7 @@ export { PipeManager } from "./pipe-manager.js";
 export { PtyManager } from "./pty.js";
 export type { LineDisciplineConfig } from "./pty.js";
 export { CommandRegistry } from "./command-registry.js";
+export { FileLockManager, LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB } from "./file-lock.js";
 export { UserManager } from "./user.js";
 export type { UserConfig } from "./user.js";
 
@@ -77,9 +78,17 @@ export {
 
 // Constants
 export {
-	O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
+	O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_CLOEXEC,
+	F_DUPFD, F_GETFD, F_SETFD, F_GETFL, F_DUPFD_CLOEXEC, FD_CLOEXEC,
 	SEEK_SET, SEEK_CUR, SEEK_END,
 	FILETYPE_UNKNOWN, FILETYPE_CHARACTER_DEVICE, FILETYPE_DIRECTORY,
 	FILETYPE_REGULAR_FILE, FILETYPE_SYMBOLIC_LINK, FILETYPE_PIPE,
-	SIGTERM, SIGKILL, SIGINT, SIGQUIT, SIGTSTP, SIGWINCH,
+	SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGPIPE, SIGALRM, SIGTERM, SIGCHLD, SIGCONT, SIGSTOP, SIGTSTP, SIGWINCH,
+	WNOHANG,
 } from "./types.js";
+
+// POSIX wstatus encoding/decoding
+export {
+	encodeExitStatus, encodeSignalStatus,
+	WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG,
+} from "./wstatus.js";

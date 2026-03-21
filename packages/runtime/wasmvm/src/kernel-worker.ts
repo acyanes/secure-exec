@@ -15,12 +15,14 @@ import { workerData, parentPort } from 'node:worker_threads';
 import { readFile } from 'node:fs/promises';
 import { WasiPolyfill, WasiProcExit } from './wasi-polyfill.ts';
 import { UserManager } from './user.ts';
-import { FDTable } from '../test/helpers/test-fd-table.ts';
+import { FDTable } from './fd-table.ts';
 import {
   FILETYPE_CHARACTER_DEVICE,
   FILETYPE_REGULAR_FILE,
   FILETYPE_DIRECTORY,
   ERRNO_SUCCESS,
+  ERRNO_EACCES,
+  ERRNO_ECHILD,
   ERRNO_EINVAL,
   ERRNO_EBADF,
 } from './wasi-constants.ts';
@@ -39,9 +41,78 @@ import {
   type WorkerInitData,
   type SyscallRequest,
 } from './syscall-rpc.ts';
+import {
+  isWriteBlocked as _isWriteBlocked,
+  isSpawnBlocked as _isSpawnBlocked,
+  isNetworkBlocked as _isNetworkBlocked,
+  isPathInCwd as _isPathInCwd,
+  validatePermissionTier,
+} from './permission-check.ts';
+import { normalize } from 'node:path';
 
 const port = parentPort!;
 const init = workerData as WorkerInitData;
+
+// Permission tier — validate to default unknown strings to 'isolated'
+const permissionTier = validatePermissionTier(init.permissionTier ?? 'read-write');
+
+/** Check if the tier blocks write operations. */
+function isWriteBlocked(): boolean {
+  return _isWriteBlocked(permissionTier);
+}
+
+/** Check if the tier blocks subprocess spawning. */
+function isSpawnBlocked(): boolean {
+  return _isSpawnBlocked(permissionTier);
+}
+
+/** Check if the tier blocks network operations. */
+function isNetworkBlocked(): boolean {
+  return _isNetworkBlocked(permissionTier);
+}
+
+/**
+ * Resolve symlinks in path via VFS readlink RPC.
+ * Walks each path component and follows symlinks to prevent escape attacks.
+ */
+function vfsRealpath(inputPath: string): string {
+  const segments = inputPath.split('/').filter(Boolean);
+  const resolved: string[] = [];
+  let depth = 0;
+  const MAX_SYMLINK_DEPTH = 40; // POSIX SYMLOOP_MAX
+
+  for (let i = 0; i < segments.length; i++) {
+    resolved.push(segments[i]);
+    const currentPath = '/' + resolved.join('/');
+
+    // Try readlink directly via RPC (bypasses permission check)
+    const res = rpcCall('vfsReadlink', { path: currentPath });
+    if (res.errno === 0 && res.data.length > 0) {
+      if (++depth > MAX_SYMLINK_DEPTH) return inputPath; // give up
+      const target = new TextDecoder().decode(res.data);
+      if (target.startsWith('/')) {
+        // Absolute symlink — restart from target
+        resolved.length = 0;
+        resolved.push(...target.split('/').filter(Boolean));
+      } else {
+        // Relative symlink — replace last component with target
+        resolved.pop();
+        resolved.push(...target.split('/').filter(Boolean));
+      }
+      // Normalize away . and .. segments
+      const norm = normalize('/' + resolved.join('/')).split('/').filter(Boolean);
+      resolved.length = 0;
+      resolved.push(...norm);
+    }
+  }
+
+  return '/' + resolved.join('/') || '/';
+}
+
+/** Check if a path is within the cwd subtree (for isolated tier). */
+function isPathInCwd(path: string): boolean {
+  return _isPathInCwd(path, init.cwd, vfsRealpath);
+}
 
 // -------------------------------------------------------------------------
 // RPC client — blocks worker thread until main thread responds
@@ -132,14 +203,39 @@ function createKernelFileIO(): WasiFileIO {
   return {
     fdRead(fd, maxBytes) {
       const res = rpcCall('fdRead', { fd: kernelFd(fd), length: maxBytes });
+      // Sync local cursor so fd_tell returns consistent values
+      if (res.errno === 0 && res.data.length > 0) {
+        const entry = fdTable.get(fd);
+        if (entry) entry.cursor += BigInt(res.data.length);
+      }
       return { errno: res.errno, data: res.data };
     },
     fdWrite(fd, data) {
+      // Permission check: read-only/isolated tiers can only write to stdout/stderr
+      if (isWriteBlocked() && fd !== 1 && fd !== 2) {
+        return { errno: ERRNO_EACCES, written: 0 };
+      }
       const res = rpcCall('fdWrite', { fd: kernelFd(fd), data: Array.from(data) });
+      // Sync local cursor so fd_tell returns consistent values
+      if (res.errno === 0 && res.intResult > 0) {
+        const entry = fdTable.get(fd);
+        if (entry) entry.cursor += BigInt(res.intResult);
+      }
       return { errno: res.errno, written: res.intResult };
     },
     fdOpen(path, dirflags, oflags, fdflags, rightsBase, rightsInheriting) {
       const isDirectory = !!(oflags & 0x2); // OFLAG_DIRECTORY
+
+      // Permission check: isolated tier restricts reads to cwd subtree
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        return { errno: ERRNO_EACCES, fd: -1, filetype: 0 };
+      }
+
+      // Permission check: block write flags for read-only/isolated tiers
+      const hasWriteIntent = !!(oflags & 0x1) || !!(oflags & 0x8) || !!(fdflags & 0x1) || !!(rightsBase & 2n);
+      if (isWriteBlocked() && hasWriteIntent) {
+        return { errno: ERRNO_EACCES, fd: -1, filetype: 0 };
+      }
 
       // Directory opens: verify path exists as directory, return local FD
       // No kernel FD needed — directory ops use VFS RPCs, not kernel fdRead
@@ -191,6 +287,10 @@ function createKernelFileIO(): WasiFileIO {
       return { errno: res.errno, data: res.data };
     },
     fdPwrite(fd, data, offset) {
+      // Permission check: read-only/isolated tiers can only write to stdout/stderr
+      if (isWriteBlocked() && fd !== 1 && fd !== 2) {
+        return { errno: ERRNO_EACCES, written: 0 };
+      }
       const res = rpcCall('fdPwrite', { fd: kernelFd(fd), data: Array.from(data), offset: offset.toString() });
       return { errno: res.errno, written: res.intResult };
     },
@@ -242,11 +342,17 @@ function createKernelVfs(): WasiVFS {
   const inoCache = new Map<number, WasiInode>();
   const populatedDirs = new Set<number>();
 
-  function resolveIno(path: string): number | null {
-    const cached = pathToIno.get(path);
-    if (cached !== undefined) return cached;
+  function resolveIno(path: string, followSymlinks = true): number | null {
+    if (permissionTier === 'isolated' && !isPathInCwd(path)) return null;
 
-    const res = rpcCall('vfsStat', { path });
+    // When following symlinks, use cached inode if available
+    if (followSymlinks) {
+      const cached = pathToIno.get(path);
+      if (cached !== undefined) return cached;
+    }
+
+    const rpcName = followSymlinks ? 'vfsStat' : 'vfsLstat';
+    const res = rpcCall(rpcName, { path });
     if (res.errno !== 0) return null;
 
     // RPC response fields: { type, mode, uid, gid, nlink, size, atime, mtime, ctime }
@@ -285,6 +391,9 @@ function createKernelVfs(): WasiVFS {
     const path = inoToPath.get(ino);
     if (!path) return;
 
+    // Isolated tier: skip populating directories outside cwd
+    if (permissionTier === 'isolated' && !isPathInCwd(path)) return;
+
     const res = rpcCall('vfsReaddir', { path });
     if (res.errno !== 0) return;
 
@@ -300,14 +409,17 @@ function createKernelVfs(): WasiVFS {
 
   return {
     exists(path: string): boolean {
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) return false;
       const res = rpcCall('vfsExists', { path });
       return res.errno === 0 && res.intResult === 1;
     },
     mkdir(path: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const res = rpcCall('vfsMkdir', { path });
       if (res.errno !== 0) throw new VfsError('EACCES', path);
     },
     mkdirp(path: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const segments = path.split('/').filter(Boolean);
       let current = '';
       for (const seg of segments) {
@@ -319,44 +431,67 @@ function createKernelVfs(): WasiVFS {
       }
     },
     writeFile(path: string, data: Uint8Array | string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
       rpcCall('vfsWriteFile', { path, data: Array.from(bytes) });
     },
     readFile(path: string): Uint8Array {
+      // Isolated tier: restrict reads to cwd subtree
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
       const res = rpcCall('vfsReadFile', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
       return res.data;
     },
     readdir(path: string): string[] {
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
       const res = rpcCall('vfsReaddir', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
       return JSON.parse(decoder.decode(res.data));
     },
     stat(path: string): VfsStat {
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
       const res = rpcCall('vfsStat', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
       return JSON.parse(decoder.decode(res.data));
     },
     lstat(path: string): VfsStat {
-      return this.stat(path);
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
+      const res = rpcCall('vfsLstat', { path });
+      if (res.errno !== 0) throw new VfsError('ENOENT', path);
+      return JSON.parse(decoder.decode(res.data));
     },
     unlink(path: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const res = rpcCall('vfsUnlink', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
     },
     rmdir(path: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', path);
       const res = rpcCall('vfsRmdir', { path });
       if (res.errno !== 0) throw new VfsError('ENOENT', path);
     },
     rename(oldPath: string, newPath: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', oldPath);
       const res = rpcCall('vfsRename', { oldPath, newPath });
       if (res.errno !== 0) throw new VfsError('ENOENT', oldPath);
     },
     symlink(target: string, linkPath: string): void {
+      if (isWriteBlocked()) throw new VfsError('EACCES', linkPath);
       const res = rpcCall('vfsSymlink', { target, linkPath });
       if (res.errno !== 0) throw new VfsError('EEXIST', linkPath);
     },
     readlink(path: string): string {
+      if (permissionTier === 'isolated' && !isPathInCwd(path)) {
+        throw new VfsError('EACCES', path);
+      }
       const res = rpcCall('vfsReadlink', { path });
       if (res.errno !== 0) throw new VfsError('EINVAL', path);
       return decoder.decode(res.data);
@@ -364,8 +499,8 @@ function createKernelVfs(): WasiVFS {
     chmod(_path: string, _mode: number): void {
       // No-op — permissions handled by kernel
     },
-    getIno(path: string): number | null {
-      return resolveIno(path);
+    getIno(path: string, followSymlinks = true): number | null {
+      return resolveIno(path, followSymlinks);
     },
     getInodeByIno(ino: number): WasiInode | null {
       const node = inoCache.get(ino);
@@ -387,6 +522,9 @@ function createKernelVfs(): WasiVFS {
 // -------------------------------------------------------------------------
 
 function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
+  // Track child PIDs for waitpid(-1) — "wait for any child"
+  const childPids = new Set<number>();
+
   return {
     /**
      * proc_spawn routes through KernelInterface.spawn() so brush-shell
@@ -402,6 +540,9 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       cwd_ptr: number, cwd_len: number,
       ret_pid_ptr: number,
     ): number {
+      // Permission check: only 'full' tier allows subprocess spawning
+      if (isSpawnBlocked()) return ERRNO_EACCES;
+
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
@@ -447,7 +588,9 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       });
 
       if (res.errno !== 0) return res.errno;
-      new DataView(mem.buffer).setUint32(ret_pid_ptr, res.intResult, true);
+      const childPid = res.intResult;
+      new DataView(mem.buffer).setUint32(ret_pid_ptr, childPid, true);
+      childPids.add(childPid);
 
       // Close pipe FDs used as stdio overrides in the parent (POSIX close-after-fork)
       // Without this, the parent retains a reference to the pipe ends, preventing EOF.
@@ -464,22 +607,46 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
     },
 
     /**
-     * proc_waitpid(pid, options, ret_status) -> errno
+     * proc_waitpid(pid, options, ret_status, ret_pid) -> errno
      * options: 0 = blocking, 1 = WNOHANG
+     * ret_pid: writes the actual waited-for PID (relevant for pid=-1)
      */
-    proc_waitpid(pid: number, _options: number, ret_status_ptr: number): number {
+    proc_waitpid(pid: number, options: number, ret_status_ptr: number, ret_pid_ptr: number): number {
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
-      const res = rpcCall('waitpid', { pid });
+      // Resolve pid=-1 (wait for any child) to an actual child PID
+      let targetPid = pid;
+      if (pid < 0) {
+        const first = childPids.values().next();
+        if (first.done) return ERRNO_ECHILD;
+        targetPid = first.value;
+      }
+
+      const res = rpcCall('waitpid', { pid: targetPid, options: options || undefined });
       if (res.errno !== 0) return res.errno;
 
-      new DataView(mem.buffer).setUint32(ret_status_ptr, res.intResult, true);
+      // WNOHANG returns intResult=-1 when process is still running
+      if (res.intResult === -1) {
+        const view = new DataView(mem.buffer);
+        view.setUint32(ret_status_ptr, 0, true);
+        view.setUint32(ret_pid_ptr, 0, true);
+        return ERRNO_SUCCESS;
+      }
+
+      const view = new DataView(mem.buffer);
+      view.setUint32(ret_status_ptr, res.intResult, true);
+      view.setUint32(ret_pid_ptr, targetPid, true);
+
+      // Remove from tracked children after successful wait
+      childPids.delete(targetPid);
+
       return ERRNO_SUCCESS;
     },
 
-    /** proc_kill(pid, signal) -> errno */
+    /** proc_kill(pid, signal) -> errno — only 'full' tier can send signals */
     proc_kill(pid: number, signal: number): number {
+      if (isSpawnBlocked()) return ERRNO_EACCES;
       const res = rpcCall('kill', { pid, signal });
       return res.errno;
     },
@@ -490,6 +657,8 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
      * Registers pipe FDs in the local FDTable so WASI fd_renumber can find them.
      */
     fd_pipe(ret_read_fd_ptr: number, ret_write_fd_ptr: number): number {
+      // Permission check: pipes are only useful with proc_spawn, restrict to 'full' tier
+      if (isSpawnBlocked()) return ERRNO_EACCES;
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
@@ -524,6 +693,8 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
      * Converts local FD to kernel FD, dups in kernel, registers new local FD.
      */
     fd_dup(fd: number, ret_new_fd_ptr: number): number {
+      // Permission check: prevent resource exhaustion from restricted tiers
+      if (isSpawnBlocked()) return ERRNO_EACCES;
       const mem = getMemory();
       if (!mem) return ERRNO_EINVAL;
 
@@ -551,10 +722,232 @@ function createHostProcessImports(getMemory: () => WebAssembly.Memory | null) {
       return ERRNO_SUCCESS;
     },
 
+    /** proc_getppid(ret_pid) -> errno */
+    proc_getppid(ret_pid_ptr: number): number {
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      new DataView(mem.buffer).setUint32(ret_pid_ptr, init.ppid, true);
+      return ERRNO_SUCCESS;
+    },
+
+    /**
+     * fd_dup2(old_fd, new_fd) -> errno
+     * Duplicates old_fd to new_fd. If new_fd is already open, it is closed first.
+     */
+    fd_dup2(old_fd: number, new_fd: number): number {
+      // Permission check: prevent resource exhaustion from restricted tiers
+      if (isSpawnBlocked()) return ERRNO_EACCES;
+
+      const kOldFd = localToKernelFd.get(old_fd) ?? old_fd;
+      const kNewFd = localToKernelFd.get(new_fd) ?? new_fd;
+      const res = rpcCall('fdDup2', { oldFd: kOldFd, newFd: kNewFd });
+      if (res.errno !== 0) return res.errno;
+
+      // Update local FD table to reflect the dup2
+      const errno = fdTable.dup2(old_fd, new_fd);
+      if (errno !== ERRNO_SUCCESS) return errno;
+
+      // Map local new_fd to the same kernel FD as old_fd
+      localToKernelFd.set(new_fd, kOldFd);
+
+      return ERRNO_SUCCESS;
+    },
+
     /** sleep_ms(milliseconds) -> errno — blocks via Atomics.wait */
     sleep_ms(milliseconds: number): number {
       const buf = new Int32Array(new SharedArrayBuffer(4));
       Atomics.wait(buf, 0, 0, milliseconds);
+      return ERRNO_SUCCESS;
+    },
+
+    /**
+     * pty_open(ret_master_fd, ret_write_fd) -> errno
+     * Allocates a PTY master/slave pair via the kernel and installs both FDs.
+     * The slave FD is passed to proc_spawn as stdin/stdout/stderr for interactive use.
+     */
+    pty_open(ret_master_fd_ptr: number, ret_slave_fd_ptr: number): number {
+      if (isSpawnBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const res = rpcCall('openpty', {});
+      if (res.errno !== 0) return res.errno;
+
+      // Master + slave kernel FDs packed: low 16 bits = masterFd, high 16 bits = slaveFd
+      const kernelMasterFd = res.intResult & 0xFFFF;
+      const kernelSlaveFd = (res.intResult >>> 16) & 0xFFFF;
+
+      // Register PTY FDs in local table (same pattern as fd_pipe)
+      const localMasterFd = fdTable.open(
+        { type: 'vfsFile', ino: 0, path: '' },
+        { filetype: FILETYPE_CHARACTER_DEVICE },
+      );
+      const localSlaveFd = fdTable.open(
+        { type: 'vfsFile', ino: 0, path: '' },
+        { filetype: FILETYPE_CHARACTER_DEVICE },
+      );
+      localToKernelFd.set(localMasterFd, kernelMasterFd);
+      localToKernelFd.set(localSlaveFd, kernelSlaveFd);
+
+      const view = new DataView(mem.buffer);
+      view.setUint32(ret_master_fd_ptr, localMasterFd, true);
+      view.setUint32(ret_slave_fd_ptr, localSlaveFd, true);
+      return ERRNO_SUCCESS;
+    },
+  };
+}
+
+// -------------------------------------------------------------------------
+// Host net imports — TCP socket operations (skeleton, returns ENOSYS)
+// -------------------------------------------------------------------------
+
+function createHostNetImports(getMemory: () => WebAssembly.Memory | null) {
+  const ENOSYS = 52; // WASI ENOSYS
+
+  return {
+    /** net_socket(domain, type, protocol, ret_fd) -> errno */
+    net_socket(domain: number, type: number, protocol: number, ret_fd_ptr: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const res = rpcCall('netSocket', { domain, type, protocol });
+      if (res.errno !== 0) return res.errno;
+
+      new DataView(mem.buffer).setUint32(ret_fd_ptr, res.intResult, true);
+      return ERRNO_SUCCESS;
+    },
+
+    /** net_connect(fd, addr_ptr, addr_len) -> errno */
+    net_connect(fd: number, addr_ptr: number, addr_len: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const addrBytes = new Uint8Array(mem.buffer, addr_ptr, addr_len);
+      const addr = new TextDecoder().decode(addrBytes);
+
+      const res = rpcCall('netConnect', { fd, addr });
+      return res.errno;
+    },
+
+    /** net_send(fd, buf_ptr, buf_len, flags, ret_sent) -> errno */
+    net_send(fd: number, buf_ptr: number, buf_len: number, flags: number, ret_sent_ptr: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const sendData = new Uint8Array(mem.buffer).slice(buf_ptr, buf_ptr + buf_len);
+      const res = rpcCall('netSend', { fd, data: Array.from(sendData), flags });
+      if (res.errno !== 0) return res.errno;
+
+      new DataView(mem.buffer).setUint32(ret_sent_ptr, res.intResult, true);
+      return ERRNO_SUCCESS;
+    },
+
+    /** net_recv(fd, buf_ptr, buf_len, flags, ret_received) -> errno */
+    net_recv(fd: number, buf_ptr: number, buf_len: number, flags: number, ret_received_ptr: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const res = rpcCall('netRecv', { fd, length: buf_len, flags });
+      if (res.errno !== 0) return res.errno;
+
+      // Copy received data into WASM memory
+      const dest = new Uint8Array(mem.buffer, buf_ptr, buf_len);
+      dest.set(res.data.subarray(0, Math.min(res.data.length, buf_len)));
+      new DataView(mem.buffer).setUint32(ret_received_ptr, res.data.length, true);
+      return ERRNO_SUCCESS;
+    },
+
+    /** net_close(fd) -> errno */
+    net_close(fd: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const res = rpcCall('netClose', { fd });
+      return res.errno;
+    },
+
+    /** net_tls_connect(fd, hostname_ptr, hostname_len, flags?) -> errno
+     *  flags: 0 = verify peer (default), 1 = skip verification (-k) */
+    net_tls_connect(fd: number, hostname_ptr: number, hostname_len: number, flags?: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const hostnameBytes = new Uint8Array(mem.buffer, hostname_ptr, hostname_len);
+      const hostname = new TextDecoder().decode(hostnameBytes);
+      const verifyPeer = (flags ?? 0) === 0;
+
+      const res = rpcCall('netTlsConnect', { fd, hostname, verifyPeer });
+      return res.errno;
+    },
+
+    /** net_getaddrinfo(host_ptr, host_len, port_ptr, port_len, ret_addr, ret_addr_len) -> errno */
+    net_getaddrinfo(
+      host_ptr: number, host_len: number,
+      port_ptr: number, port_len: number,
+      ret_addr_ptr: number, ret_addr_len_ptr: number,
+    ): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      const decoder = new TextDecoder();
+      const host = decoder.decode(new Uint8Array(mem.buffer, host_ptr, host_len));
+      const port = decoder.decode(new Uint8Array(mem.buffer, port_ptr, port_len));
+
+      const res = rpcCall('netGetaddrinfo', { host, port });
+      if (res.errno !== 0) return res.errno;
+
+      // Write resolved address data back to WASM memory
+      const maxLen = new DataView(mem.buffer).getUint32(ret_addr_len_ptr, true);
+      const dataLen = res.data.length;
+      if (dataLen > maxLen) return ERRNO_EINVAL;
+
+      const wasmBuf = new Uint8Array(mem.buffer);
+      wasmBuf.set(res.data.subarray(0, dataLen), ret_addr_ptr);
+      new DataView(mem.buffer).setUint32(ret_addr_len_ptr, dataLen, true);
+
+      return 0;
+    },
+
+    /** net_setsockopt(fd, level, optname, optval_ptr, optval_len) -> errno */
+    net_setsockopt(_fd: number, _level: number, _optname: number, _optval_ptr: number, _optval_len: number): number {
+      return ENOSYS;
+    },
+
+    /** net_poll(fds_ptr, nfds, timeout_ms, ret_ready) -> errno */
+    net_poll(fds_ptr: number, nfds: number, timeout_ms: number, ret_ready_ptr: number): number {
+      if (isNetworkBlocked()) return ERRNO_EACCES;
+      const mem = getMemory();
+      if (!mem) return ERRNO_EINVAL;
+
+      // Read pollfd entries from WASM memory: each is 8 bytes (fd:i32, events:i16, revents:i16)
+      const view = new DataView(mem.buffer);
+      const fds: Array<{ fd: number; events: number }> = [];
+      for (let i = 0; i < nfds; i++) {
+        const base = fds_ptr + i * 8;
+        const fd = view.getInt32(base, true);
+        const events = view.getInt16(base + 4, true);
+        fds.push({ fd, events });
+      }
+
+      const res = rpcCall('netPoll', { fds, timeout: timeout_ms });
+      if (res.errno !== 0) return res.errno;
+
+      // Parse revents from response data (JSON array)
+      const reventsJson = new TextDecoder().decode(res.data.subarray(0, res.data.length));
+      const revents: number[] = JSON.parse(reventsJson);
+
+      // Write revents back into WASM memory pollfd structs
+      for (let i = 0; i < nfds && i < revents.length; i++) {
+        const base = fds_ptr + i * 8;
+        view.setInt16(base + 6, revents[i], true); // revents field offset = 6
+      }
+
+      view.setUint32(ret_ready_ptr, res.intResult, true);
       return ERRNO_SUCCESS;
     },
   };
@@ -626,16 +1019,18 @@ async function main(): Promise<void> {
   });
 
   const hostProcess = createHostProcessImports(getMemory);
+  const hostNet = createHostNetImports(getMemory);
 
   try {
-    // Load WASM binary
-    const wasmBytes = await readFile(init.wasmBinaryPath);
-    const wasmModule = await WebAssembly.compile(wasmBytes);
+    // Use pre-compiled module from main thread if available, otherwise compile from disk
+    const wasmModule = init.wasmModule
+      ?? await WebAssembly.compile(await readFile(init.wasmBinaryPath));
 
     const imports: WebAssembly.Imports = {
       wasi_snapshot_preview1: polyfill.getImports() as WebAssembly.ModuleImports,
       host_user: userManager.getImports() as unknown as WebAssembly.ModuleImports,
       host_process: hostProcess as unknown as WebAssembly.ModuleImports,
+      host_net: hostNet as unknown as WebAssembly.ModuleImports,
     };
 
     const instance = await WebAssembly.instantiate(wasmModule, imports);

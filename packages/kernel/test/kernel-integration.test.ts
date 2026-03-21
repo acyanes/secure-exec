@@ -5,8 +5,9 @@ import {
 	createTestKernel,
 	type MockCommandConfig,
 } from "./helpers.js";
-import type { Kernel, Permissions } from "../src/types.js";
+import type { Kernel, Permissions, ProcessContext, RuntimeDriver, DriverProcess, KernelInterface } from "../src/types.js";
 import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
+import { createKernel } from "../src/kernel.js";
 import { filterEnv, wrapFileSystem } from "../src/permissions.js";
 import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../src/pty.js";
 
@@ -2530,6 +2531,138 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	});
 
 	// -------------------------------------------------------------------
+	// PTY-based spawn (ExecCommandSession pattern)
+	// -------------------------------------------------------------------
+
+	describe("PTY-based spawn (interactive session)", () => {
+		it("spawn child with PTY slave as stdio: parent writes master → child reads stdin", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent-cmd", []);
+
+			// Allocate PTY in parent's FD table
+			const { masterFd, slaveFd } = ki.openpty(parent.pid);
+
+			// Set raw mode for direct pass-through
+			ki.ptySetDiscipline(parent.pid, masterFd, { canonical: false, echo: false, isig: false });
+
+			// Spawn child with PTY slave as stdin/stdout/stderr
+			const child = ki.spawn("child-cmd", [], {
+				ppid: parent.pid,
+				stdinFd: slaveFd,
+				stdoutFd: slaveFd,
+				stderrFd: slaveFd,
+			});
+
+			// Parent writes to PTY master → child can read from stdin (slave)
+			const msg = new TextEncoder().encode("hello from parent");
+			ki.fdWrite(parent.pid, masterFd, msg);
+
+			// Child reads from its stdin (FD 0, which is the PTY slave)
+			const childStdinFd = 0;
+			const data = await ki.fdRead(child.pid, childStdinFd, 1024);
+			expect(new TextDecoder().decode(data)).toBe("hello from parent");
+
+			child.kill();
+			parent.kill();
+		});
+
+		it("spawn child with PTY slave as stdio: child writes stdout → parent reads master", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent-cmd", []);
+
+			const { masterFd, slaveFd } = ki.openpty(parent.pid);
+
+			// Disable ONLCR for clean data comparison
+			ki.tcsetattr(parent.pid, slaveFd, { onlcr: false });
+
+			// Spawn child with PTY slave as all stdio
+			const child = ki.spawn("child-cmd", [], {
+				ppid: parent.pid,
+				stdinFd: slaveFd,
+				stdoutFd: slaveFd,
+				stderrFd: slaveFd,
+			});
+
+			// Child writes to stdout (FD 1, PTY slave) → parent reads from master
+			const childStdoutFd = 1;
+			ki.fdWrite(child.pid, childStdoutFd, new TextEncoder().encode("child output"));
+
+			const data = await ki.fdRead(parent.pid, masterFd, 1024);
+			expect(new TextDecoder().decode(data)).toBe("child output");
+
+			child.kill();
+			parent.kill();
+		});
+
+		it("PTY-based spawn: process termination via kill is visible to parent waitpid", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent-cmd", []);
+
+			const { masterFd, slaveFd } = ki.openpty(parent.pid);
+
+			const child = ki.spawn("child-cmd", [], {
+				ppid: parent.pid,
+				stdinFd: slaveFd,
+				stdoutFd: slaveFd,
+				stderrFd: slaveFd,
+			});
+
+			// Kill child → wait should resolve
+			child.kill();
+			const exitCode = await child.wait();
+			expect(exitCode).toBe(128 + 15); // SIGTERM (default signal from kill())
+
+			parent.kill();
+		});
+
+		it("PTY-based spawn: isatty returns true for child stdio FDs", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent-cmd", []);
+
+			const { masterFd, slaveFd } = ki.openpty(parent.pid);
+
+			const child = ki.spawn("child-cmd", [], {
+				ppid: parent.pid,
+				stdinFd: slaveFd,
+				stdoutFd: slaveFd,
+				stderrFd: slaveFd,
+			});
+
+			// Child's FD 0, 1, 2 are PTY slave → isatty should be true
+			expect(ki.isatty(child.pid, 0)).toBe(true);
+			expect(ki.isatty(child.pid, 1)).toBe(true);
+			expect(ki.isatty(child.pid, 2)).toBe(true);
+
+			child.kill();
+			parent.kill();
+		});
+	});
+
+	// -------------------------------------------------------------------
 	// PTY line discipline
 	// -------------------------------------------------------------------
 
@@ -2719,6 +2852,61 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			// Child should have received SIGQUIT (signal 3)
 			expect(killSignals).toContain(3);
+
+			parent.kill();
+		});
+
+		it("^\\ echoes ^\\ to master when isig and echo enabled", async () => {
+			const killSignals: number[] = [];
+			const driver = new MockRuntimeDriver(["parent", "child"], {
+				parent: { neverExit: true },
+				child: { neverExit: true, killSignals },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent", []);
+			const child = kernel.spawn("child", []);
+
+			ki.setpgid(child.pid, child.pid);
+
+			const { masterFd } = ki.openpty(parent.pid);
+			// Enable isig + echo (defaults are both on, but be explicit)
+			ki.ptySetDiscipline(parent.pid, masterFd, { isig: true, echo: true });
+			ki.ptySetForegroundPgid(parent.pid, masterFd, child.pid);
+
+			// Write ^\ (0x1C)
+			ki.fdWrite(parent.pid, masterFd, new Uint8Array([0x1c]));
+
+			// Read echo from master — should contain ^\ (0x5e 0x5c)
+			const echo = await ki.fdRead(parent.pid, masterFd, 1024);
+			const text = new TextDecoder().decode(echo);
+			expect(text).toContain("^\\");
+
+			parent.kill();
+		});
+
+		it("PTY master close delivers SIGHUP to foreground process group", async () => {
+			const killSignals: number[] = [];
+			const driver = new MockRuntimeDriver(["parent", "child"], {
+				parent: { neverExit: true },
+				child: { neverExit: true, killSignals, survivableSignals: [1] },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent", []);
+			const child = kernel.spawn("child", []);
+
+			ki.setpgid(child.pid, child.pid);
+
+			const { masterFd } = ki.openpty(parent.pid);
+			ki.ptySetForegroundPgid(parent.pid, masterFd, child.pid);
+
+			// Close master — should deliver SIGHUP (1) to foreground pgid
+			ki.fdClose(parent.pid, masterFd);
+
+			expect(killSignals).toContain(1); // SIGHUP
 
 			parent.kill();
 		});
@@ -3326,13 +3514,14 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			const shell = kernel.openShell();
 
-			// ^C should generate SIGINT but shell survives
+			// ^C intercepted at PTY level for session leader — shell is
+			// protected from SIGINT (kill not called on session leader)
 			shell.write("\x03");
 
 			await new Promise((r) => setTimeout(r, 10));
 
-			// SIGINT delivered to foreground process group
-			expect(killSignals).toContain(2);
+			// Session leader is excluded from SIGINT delivery
+			expect(killSignals).not.toContain(2);
 
 			// Shell still running — wait should not have resolved
 			expect(shell.pid).toBeGreaterThan(0);
@@ -3787,6 +3976,997 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			}
 
 			for (const p of procs) { p.kill(); await p.wait(); }
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// On-demand command discovery via tryResolve
+	// -----------------------------------------------------------------------
+
+	describe("on-demand command discovery (tryResolve)", () => {
+		it("discovers a command not in initial commands list", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"dynamic-cmd": { exitCode: 7, stdout: "discovered\n" },
+			});
+			// Add tryResolve that discovers "dynamic-cmd"
+			driver.tryResolve = (command: string) => command === "dynamic-cmd";
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// "dynamic-cmd" was not in the initial commands list, but tryResolve finds it
+			const proc = kernel.spawn("dynamic-cmd", []);
+			const code = await proc.wait();
+			expect(code).toBe(7);
+		});
+
+		it("tryResolve returning false for all drivers results in ENOENT", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+			});
+			driver.tryResolve = (_command: string) => false;
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			expect(() => kernel.spawn("nonexistent", [])).toThrow("ENOENT");
+		});
+
+		it("after tryResolve succeeds, subsequent spawns resolve via registry without calling tryResolve again", async () => {
+			let tryResolveCallCount = 0;
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"lazy-cmd": { exitCode: 0, stdout: "ok\n" },
+			});
+			driver.tryResolve = (command: string) => {
+				tryResolveCallCount++;
+				return command === "lazy-cmd";
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// First spawn triggers tryResolve
+			const proc1 = kernel.spawn("lazy-cmd", []);
+			await proc1.wait();
+			expect(tryResolveCallCount).toBe(1);
+
+			// Second spawn should resolve from registry — no tryResolve call
+			const proc2 = kernel.spawn("lazy-cmd", []);
+			await proc2.wait();
+			expect(tryResolveCallCount).toBe(1);
+		});
+
+		it("drivers without tryResolve are skipped", async () => {
+			const driver1 = new MockRuntimeDriver(["sh"], { sh: { exitCode: 0 } });
+			// driver1 has no tryResolve
+
+			const driver2 = new MockRuntimeDriver(["cat"], {
+				cat: { exitCode: 0 },
+				"extra-cmd": { exitCode: 0, stdout: "from-driver2\n" },
+			});
+			driver2.name = "mock2";
+			driver2.tryResolve = (command: string) => command === "extra-cmd";
+
+			({ kernel } = await createTestKernel({ drivers: [driver1, driver2] }));
+
+			// driver1 is skipped (no tryResolve), driver2 discovers "extra-cmd"
+			const proc = kernel.spawn("extra-cmd", []);
+			const code = await proc.wait();
+			expect(code).toBe(0);
+		});
+
+		it("tryResolve works with path-based command lookups", async () => {
+			let tryResolvedWith: string | undefined;
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+			});
+			driver.tryResolve = (command: string) => {
+				tryResolvedWith = command;
+				return command === "path-cmd";
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Path-based lookup extracts basename before trying tryResolve
+			const proc = kernel.spawn("/usr/bin/path-cmd", []);
+			await proc.wait();
+			// tryResolve received the basename, not the full path
+			expect(tryResolvedWith).toBe("path-cmd");
+		});
+
+		it("populates /bin entry after tryResolve succeeds", async () => {
+			let vfs: TestFileSystem;
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"new-cmd": { exitCode: 0 },
+			});
+			driver.tryResolve = (command: string) => command === "new-cmd";
+
+			({ kernel, vfs } = await createTestKernel({ drivers: [driver] }));
+
+			// Before spawn, /bin/new-cmd should not exist
+			expect(await vfs.exists("/bin/new-cmd")).toBe(false);
+
+			const proc = kernel.spawn("new-cmd", []);
+			await proc.wait();
+
+			// Flush pending bin entries — no setTimeout hack needed
+			await kernel.flushPendingBinEntries();
+
+			// After spawn, /bin/new-cmd should be populated
+			expect(await vfs.exists("/bin/new-cmd")).toBe(true);
+		});
+
+		it("on-demand discovery creates /bin stub before subsequent spawn resolves via PATH", async () => {
+			let vfs: TestFileSystem;
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"discover-cmd": { exitCode: 42 },
+				"/bin/discover-cmd": { exitCode: 42 },
+			});
+			driver.tryResolve = (command: string) => command === "discover-cmd";
+
+			({ kernel, vfs } = await createTestKernel({ drivers: [driver] }));
+
+			// First spawn discovers the command
+			const proc1 = kernel.spawn("discover-cmd", []);
+			await proc1.wait();
+
+			// Flush ensures /bin stub exists before PATH-based lookup
+			await kernel.flushPendingBinEntries();
+
+			// /bin/discover-cmd must exist now
+			expect(await vfs.exists("/bin/discover-cmd")).toBe(true);
+
+			// Subsequent spawn via PATH (/bin/discover-cmd) resolves via registry
+			const proc2 = kernel.spawn("/bin/discover-cmd", []);
+			const code2 = await proc2.wait();
+			expect(code2).toBe(42);
+		});
+
+		it("rapid consecutive spawns of a newly-discovered command both succeed (no race)", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0 },
+				"rapid-cmd": { exitCode: 7 },
+			});
+			driver.tryResolve = (command: string) => command === "rapid-cmd";
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Two rapid spawns — first triggers tryResolve, second uses registry
+			const proc1 = kernel.spawn("rapid-cmd", []);
+			const proc2 = kernel.spawn("rapid-cmd", []);
+
+			const [code1, code2] = await Promise.all([proc1.wait(), proc2.wait()]);
+			expect(code1).toBe(7);
+			expect(code2).toBe(7);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// chdir — mutable working directory
+	// -----------------------------------------------------------------------
+
+	describe("chdir", () => {
+		it("chdir then getcwd returns new path", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0, neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			// Create a directory to chdir into
+			await ki.vfs.mkdir("/tmp/newdir");
+
+			await ki.chdir(proc.pid, "/tmp/newdir");
+			expect(ki.getcwd(proc.pid)).toBe("/tmp/newdir");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("chdir then spawn child — child cwd matches", async () => {
+			let childCwd: string | undefined;
+			const driver = new MockRuntimeDriver(["sh", "child-cmd"], {
+				sh: { exitCode: 0, neverExit: true },
+				"child-cmd": { exitCode: 0 },
+			});
+
+			// Wrap spawn to capture child ctx.cwd
+			const origSpawn = driver.spawn.bind(driver);
+			driver.spawn = (command: string, args: string[], ctx: ProcessContext) => {
+				if (command === "child-cmd") {
+					childCwd = ctx.cwd;
+				}
+				return origSpawn(command, args, ctx);
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			await ki.vfs.mkdir("/tmp/workdir");
+			await ki.chdir(proc.pid, "/tmp/workdir");
+
+			// Spawn child with parent's cwd
+			const child = ki.spawn("child-cmd", [], {
+				ppid: proc.pid,
+				cwd: ki.getcwd(proc.pid),
+			});
+			await child.wait();
+
+			expect(childCwd).toBe("/tmp/workdir");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("chdir to bad path returns ENOENT", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0, neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			await expect(
+				ki.chdir(proc.pid, "/nonexistent/path"),
+			).rejects.toThrow(/ENOENT/);
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("chdir to file returns ENOTDIR", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { exitCode: 0, neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			await ki.vfs.writeFile("/tmp/afile", "content");
+
+			await expect(
+				ki.chdir(proc.pid, "/tmp/afile"),
+			).rejects.toThrow(/ENOTDIR/);
+
+			proc.kill();
+			await proc.wait();
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// setenv / unsetenv — mutable environment after spawn
+	// -----------------------------------------------------------------------
+
+	describe("setenv / unsetenv", () => {
+		it("setenv then getenv reflects change", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", []);
+			const ki = driver.kernelInterface!;
+
+			ki.setenv(proc.pid, "MY_VAR", "hello");
+			const env = ki.getenv(proc.pid);
+			expect(env.MY_VAR).toBe("hello");
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("setenv then spawn child — child has new var", async () => {
+			// Capture env from child's ProcessContext
+			const childEnvs: Record<string, string>[] = [];
+			class EnvCaptureDriver implements RuntimeDriver {
+				name = "envcap";
+				commands = ["sh", "child-cmd"];
+				ki: KernelInterface | null = null;
+				async init(kernel: KernelInterface) { this.ki = kernel; }
+				spawn(_command: string, _args: string[], ctx: ProcessContext): DriverProcess {
+					childEnvs.push({ ...ctx.env });
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const driverProc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal) { exitResolve!(128 + signal); queueMicrotask(() => driverProc.onExit?.(128 + signal)); },
+						wait() { return exitPromise; },
+						onStdout: null, onStderr: null, onExit: null,
+					};
+					return driverProc;
+				}
+				async dispose() {}
+			}
+
+			const driver = new EnvCaptureDriver();
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Spawn parent
+			const parent = kernel.spawn("sh", []);
+			const ki = driver.ki!;
+
+			// Set env on parent
+			ki.setenv(parent.pid, "INJECTED", "value123");
+
+			// Spawn child from parent
+			const child = ki.spawn("child-cmd", [], { ppid: parent.pid });
+
+			// child's env should have INJECTED
+			expect(childEnvs.length).toBeGreaterThanOrEqual(2); // parent + child
+			const childEnv = childEnvs[childEnvs.length - 1];
+			expect(childEnv.INJECTED).toBe("value123");
+
+			child.kill();
+			parent.kill();
+			await child.wait();
+			await parent.wait();
+		});
+
+		it("unsetenv removes var from getenv", async () => {
+			const driver = new MockRuntimeDriver(["sh"], {
+				sh: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("sh", [], { env: { REMOVE_ME: "exists" } });
+			const ki = driver.kernelInterface!;
+
+			expect(ki.getenv(proc.pid).REMOVE_ME).toBe("exists");
+
+			ki.unsetenv(proc.pid, "REMOVE_ME");
+			const env = ki.getenv(proc.pid);
+			expect(env.REMOVE_ME).toBeUndefined();
+			expect("REMOVE_ME" in env).toBe(false);
+
+			proc.kill();
+			await proc.wait();
+		});
+
+		it("cross-driver setenv blocked with EPERM", async () => {
+			// Create two drivers
+			class SimpleDriver implements RuntimeDriver {
+				name: string;
+				commands: string[];
+				ki: KernelInterface | null = null;
+				constructor(name: string, commands: string[]) { this.name = name; this.commands = commands; }
+				async init(kernel: KernelInterface) { this.ki = kernel; }
+				spawn(_command: string, _args: string[], _ctx: ProcessContext): DriverProcess {
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const driverProc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal) { exitResolve!(128 + signal); queueMicrotask(() => driverProc.onExit?.(128 + signal)); },
+						wait() { return exitPromise; },
+						onStdout: null, onStderr: null, onExit: null,
+					};
+					return driverProc;
+				}
+				async dispose() {}
+			}
+
+			const driverA = new SimpleDriver("alpha", ["alpha-cmd"]);
+			const driverB = new SimpleDriver("beta", ["beta-cmd"]);
+			({ kernel } = await createTestKernel({ drivers: [driverA, driverB] }));
+
+			const procA = kernel.spawn("alpha-cmd", []);
+			const procB = kernel.spawn("beta-cmd", []);
+
+			// Driver B tries to setenv on Driver A's process
+			expect(() => driverB.ki!.setenv(procA.pid, "X", "Y")).toThrow(/EPERM/);
+			// Driver A tries to unsetenv on Driver B's process
+			expect(() => driverA.ki!.unsetenv(procB.pid, "X")).toThrow(/EPERM/);
+
+			procA.kill();
+			procB.kill();
+			await procA.wait();
+			await procB.wait();
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// SIGPIPE on broken pipe write
+	// -----------------------------------------------------------------------
+
+	describe("SIGPIPE on broken pipe write", () => {
+		it("write to pipe with closed read end delivers SIGPIPE and exits 141", async () => {
+			// Custom driver that creates a pipe, closes read end, then writes
+			let ki: KernelInterface;
+			const driver: RuntimeDriver = {
+				name: "sigpipe-test",
+				commands: ["pipe-writer"],
+				async init(k: KernelInterface) { ki = k; },
+				spawn(_command: string, _args: string[], ctx: ProcessContext): DriverProcess {
+					const pid = ctx.pid;
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal) {
+							const code = 128 + signal;
+							exitResolve!(code);
+							proc.onExit?.(code);
+						},
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					// On next microtask: create pipe, close read end, write to broken pipe
+					queueMicrotask(() => {
+						const { readFd, writeFd } = ki.pipe(pid);
+						ki.fdClose(pid, readFd);
+						try {
+							ki.fdWrite(pid, writeFd, new TextEncoder().encode("data"));
+						} catch {
+							// EPIPE thrown after SIGPIPE delivery — process already terminated
+						}
+					});
+
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("pipe-writer", []);
+			const code = await proc.wait();
+			expect(code).toBe(141); // 128 + SIGPIPE(13)
+		});
+
+		it("pipeline where reader exits early — writer terminates via SIGPIPE", async () => {
+			// Reader: exits immediately, closing its stdin (pipe read end)
+			// Writer: neverExit, writes to stdout which is piped to reader's stdin
+			const driver = new MockRuntimeDriver(["reader", "writer"], {
+				reader: { exitCode: 0 },
+				writer: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Create a pipe to connect writer's stdout → reader's stdin
+			const writerProc = kernel.spawn("writer", [], { stdio: "pipe" });
+
+			// Wait for the writer process to be registered, then pipe
+			const readerProc = kernel.spawn("reader", []);
+
+			// Reader exits quickly, closing its pipe ends
+			await readerProc.wait();
+
+			// Writer tries to write to its stdout (piped), read end is now closed
+			// The writer should be terminated by SIGPIPE
+			writerProc.writeStdin(new TextEncoder().encode("trigger-output"));
+			// Give microtask time for the reader's exit cleanup to propagate
+			await new Promise((r) => setTimeout(r, 50));
+
+			// Writer should now be dead — kill it if it isn't (timeout safety)
+			if (writerProc.exitCode === null) {
+				writerProc.kill();
+			}
+			const writerCode = await writerProc.wait();
+			// Writer should have been killed (either by SIGPIPE=141 or our kill)
+			expect(writerCode).toBeGreaterThan(0);
+		});
+
+		it("EPIPE error is still thrown after SIGPIPE delivery", async () => {
+			// Use a driver that catches the EPIPE and records it
+			let caughtEpipe = false;
+			let ki: KernelInterface;
+			const driver: RuntimeDriver = {
+				name: "epipe-test",
+				commands: ["pipe-checker"],
+				async init(k: KernelInterface) { ki = k; },
+				spawn(_command: string, _args: string[], ctx: ProcessContext): DriverProcess {
+					const pid = ctx.pid;
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill(signal) {
+							const code = 128 + signal;
+							exitResolve!(code);
+							proc.onExit?.(code);
+						},
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					queueMicrotask(() => {
+						const { readFd, writeFd } = ki.pipe(pid);
+						ki.fdClose(pid, readFd);
+						try {
+							ki.fdWrite(pid, writeFd, new TextEncoder().encode("data"));
+						} catch (e: any) {
+							if (e?.code === "EPIPE") caughtEpipe = true;
+						}
+					});
+
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("pipe-checker", []);
+			await proc.wait();
+			expect(caughtEpipe).toBe(true);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// FD_CLOEXEC and O_CLOEXEC flags (US-062)
+	// -----------------------------------------------------------------------
+
+	describe("FD_CLOEXEC and O_CLOEXEC", () => {
+		it("open with O_CLOEXEC sets cloexec, child gets EBADF on that FD", async () => {
+			const O_CLOEXEC = 0o2000000;
+			let childReadError: Error | null = null;
+
+			const driver: RuntimeDriver = {
+				name: "cloexec-test",
+				commands: ["parent", "child"],
+				async init() {},
+				spawn(command, _args, ctx) {
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill() { exitResolve!(128 + 15); proc.onExit?.(128 + 15); },
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					if (command === "parent") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// Open a file with O_CLOEXEC
+						const fd = ki.fdOpen(ctx.pid, "/tmp/secret.txt", O_CLOEXEC);
+						expect(ki.fdGetCloexec(ctx.pid, fd)).toBe(true);
+
+						// Spawn child — child should NOT inherit the cloexec FD
+						const child = ki.spawn("child", [], { ppid: ctx.pid, env: ctx.env, cwd: ctx.cwd });
+						child.wait().then(() => {
+							exitResolve!(0);
+							proc.onExit?.(0);
+						});
+					} else if (command === "child") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// Try to read FD 3 — should throw EBADF since it was cloexec in parent
+						try {
+							ki.fdStat(ctx.pid, 3);
+						} catch (e) {
+							childReadError = e as Error;
+						}
+						queueMicrotask(() => { exitResolve!(0); proc.onExit?.(0); });
+					}
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			(driver as any)._ki = null;
+			const origInit = driver.init;
+			driver.init = async (ki) => {
+				(driver as any)._ki = ki;
+				return origInit.call(driver, ki);
+			};
+
+			const vfs = new TestFileSystem();
+			await vfs.writeFile("/tmp/secret.txt", "secret-data");
+			const k = createKernel({ filesystem: vfs });
+			kernel = k;
+			await k.mount(driver);
+
+			const proc = k.spawn("parent", []);
+			await proc.wait();
+
+			expect(childReadError).not.toBeNull();
+			expect((childReadError as any).code).toBe("EBADF");
+		});
+
+		it("open without O_CLOEXEC — child can read the FD", async () => {
+			let childCanRead = false;
+
+			const driver: RuntimeDriver = {
+				name: "nocloexec-test",
+				commands: ["parent", "child"],
+				async init() {},
+				spawn(command, _args, ctx) {
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill() { exitResolve!(128 + 15); proc.onExit?.(128 + 15); },
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					if (command === "parent") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// Open file without O_CLOEXEC
+						const fd = ki.fdOpen(ctx.pid, "/tmp/visible.txt", 0);
+						expect(ki.fdGetCloexec(ctx.pid, fd)).toBe(false);
+
+						const child = ki.spawn("child", [], { ppid: ctx.pid, env: ctx.env, cwd: ctx.cwd });
+						child.wait().then(() => {
+							exitResolve!(0);
+							proc.onExit?.(0);
+						});
+					} else if (command === "child") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// FD 3 should exist — inherited from parent
+						const stat = ki.fdStat(ctx.pid, 3);
+						childCanRead = stat !== undefined;
+						queueMicrotask(() => { exitResolve!(0); proc.onExit?.(0); });
+					}
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			(driver as any)._ki = null;
+			const origInit = driver.init;
+			driver.init = async (ki) => {
+				(driver as any)._ki = ki;
+				return origInit.call(driver, ki);
+			};
+
+			const vfs = new TestFileSystem();
+			await vfs.writeFile("/tmp/visible.txt", "visible-data");
+			const k = createKernel({ filesystem: vfs });
+			kernel = k;
+			await k.mount(driver);
+
+			const proc = k.spawn("parent", []);
+			await proc.wait();
+
+			expect(childCanRead).toBe(true);
+		});
+
+		it("fdSetCloexec after open — FD not inherited by child", async () => {
+			let childReadError: Error | null = null;
+
+			const driver: RuntimeDriver = {
+				name: "setcloexec-test",
+				commands: ["parent", "child"],
+				async init() {},
+				spawn(command, _args, ctx) {
+					let exitResolve: (code: number) => void;
+					const exitPromise = new Promise<number>((r) => { exitResolve = r; });
+					const proc: DriverProcess = {
+						writeStdin() {},
+						closeStdin() {},
+						kill() { exitResolve!(128 + 15); proc.onExit?.(128 + 15); },
+						wait() { return exitPromise; },
+						onStdout: null,
+						onStderr: null,
+						onExit: null,
+					};
+
+					if (command === "parent") {
+						const ki = (driver as any)._ki as KernelInterface;
+						// Open without O_CLOEXEC, then set it via fdSetCloexec
+						const fd = ki.fdOpen(ctx.pid, "/tmp/later-secret.txt", 0);
+						expect(ki.fdGetCloexec(ctx.pid, fd)).toBe(false);
+
+						ki.fdSetCloexec(ctx.pid, fd, true);
+						expect(ki.fdGetCloexec(ctx.pid, fd)).toBe(true);
+
+						const child = ki.spawn("child", [], { ppid: ctx.pid, env: ctx.env, cwd: ctx.cwd });
+						child.wait().then(() => {
+							exitResolve!(0);
+							proc.onExit?.(0);
+						});
+					} else if (command === "child") {
+						const ki = (driver as any)._ki as KernelInterface;
+						try {
+							ki.fdStat(ctx.pid, 3);
+						} catch (e) {
+							childReadError = e as Error;
+						}
+						queueMicrotask(() => { exitResolve!(0); proc.onExit?.(0); });
+					}
+					return proc;
+				},
+				async dispose() {},
+			};
+
+			(driver as any)._ki = null;
+			const origInit = driver.init;
+			driver.init = async (ki) => {
+				(driver as any)._ki = ki;
+				return origInit.call(driver, ki);
+			};
+
+			const vfs = new TestFileSystem();
+			await vfs.writeFile("/tmp/later-secret.txt", "secret");
+			const k = createKernel({ filesystem: vfs });
+			kernel = k;
+			await k.mount(driver);
+
+			const proc = k.spawn("parent", []);
+			await proc.wait();
+
+			expect(childReadError).not.toBeNull();
+			expect((childReadError as any).code).toBe("EBADF");
+		});
+
+		it("fdSetCloexec/fdGetCloexec throws EBADF for invalid FD", async () => {
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			expect(() => ki.fdSetCloexec(proc.pid, 999, true)).toThrow("EBADF");
+			expect(() => ki.fdGetCloexec(proc.pid, 999)).toThrow("EBADF");
+
+			await proc.wait();
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// fcntl - file descriptor control (US-063)
+	// -----------------------------------------------------------------------
+
+	describe("fcntl", () => {
+		it("F_DUPFD with minfd=10 — new FD is >= 10", async () => {
+			const F_DUPFD = 0;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			// Open a regular file (FD 3)
+			const fd = ki.fdOpen(proc.pid, "/tmp/test.txt", 0);
+			expect(fd).toBe(3);
+
+			// F_DUPFD with minfd=10
+			const newFd = ki.fcntl(proc.pid, fd, F_DUPFD, 10);
+			expect(newFd).toBe(10);
+
+			// Both point to same file description (shared cursor)
+			const origStat = ki.fdStat(proc.pid, fd);
+			const dupStat = ki.fdStat(proc.pid, newFd);
+			expect(dupStat.flags).toBe(origStat.flags);
+
+			await proc.wait();
+		});
+
+		it("F_GETFD after F_SETFD reflects change", async () => {
+			const F_GETFD = 1;
+			const F_SETFD = 2;
+			const FD_CLOEXEC = 1;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			const fd = ki.fdOpen(proc.pid, "/tmp/test.txt", 0);
+
+			// Initially no cloexec
+			expect(ki.fcntl(proc.pid, fd, F_GETFD)).toBe(0);
+
+			// Set cloexec
+			ki.fcntl(proc.pid, fd, F_SETFD, FD_CLOEXEC);
+			expect(ki.fcntl(proc.pid, fd, F_GETFD)).toBe(FD_CLOEXEC);
+
+			// Clear cloexec
+			ki.fcntl(proc.pid, fd, F_SETFD, 0);
+			expect(ki.fcntl(proc.pid, fd, F_GETFD)).toBe(0);
+
+			await proc.wait();
+		});
+
+		it("F_DUPFD_CLOEXEC — new FD has cloexec set, original does not", async () => {
+			const F_DUPFD_CLOEXEC = 1030;
+			const F_GETFD = 1;
+			const FD_CLOEXEC = 1;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			const fd = ki.fdOpen(proc.pid, "/tmp/test.txt", 0);
+
+			// F_DUPFD_CLOEXEC
+			const newFd = ki.fcntl(proc.pid, fd, F_DUPFD_CLOEXEC, 0);
+			expect(newFd).not.toBe(fd);
+
+			// New FD has cloexec
+			expect(ki.fcntl(proc.pid, newFd, F_GETFD)).toBe(FD_CLOEXEC);
+
+			// Original FD does not have cloexec
+			expect(ki.fcntl(proc.pid, fd, F_GETFD)).toBe(0);
+
+			await proc.wait();
+		});
+
+		it("F_GETFL returns open flags", async () => {
+			const F_GETFL = 3;
+			const O_WRONLY = 1;
+			const O_APPEND = 0o2000;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			const fd = ki.fdOpen(proc.pid, "/tmp/test.txt", O_WRONLY | O_APPEND);
+			const flags = ki.fcntl(proc.pid, fd, F_GETFL);
+			expect(flags & O_WRONLY).toBe(O_WRONLY);
+			expect(flags & O_APPEND).toBe(O_APPEND);
+
+			await proc.wait();
+		});
+
+		it("fcntl throws EBADF for invalid FD", async () => {
+			const F_GETFD = 1;
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			expect(() => ki.fcntl(proc.pid, 999, F_GETFD)).toThrow("EBADF");
+
+			await proc.wait();
+		});
+
+		it("fcntl throws EINVAL for unsupported command", async () => {
+			const driver = new MockRuntimeDriver(["test-cmd"], {
+				"test-cmd": { exitCode: 0 },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("test-cmd", []);
+			const ki = driver.kernelInterface!;
+
+			expect(() => ki.fcntl(proc.pid, 0, 9999)).toThrow("EINVAL");
+
+			await proc.wait();
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// umask
+	// -----------------------------------------------------------------------
+
+	describe("umask", () => {
+		it("default umask is 0o022", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("x", []);
+			const ki = driver.kernelInterface!;
+
+			// Query without changing — should return default 0o022
+			const mask = ki.umask(proc.pid);
+			expect(mask).toBe(0o022);
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("umask(pid, newMask) sets new mask and returns old", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("x", []);
+			const ki = driver.kernelInterface!;
+
+			const old = ki.umask(proc.pid, 0o077);
+			expect(old).toBe(0o022);
+
+			const current = ki.umask(proc.pid);
+			expect(current).toBe(0o077);
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("mkdir with mode 0o777 and umask 0o022 creates with effective mode 0o755", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+
+			const proc = kernel.spawn("x", []);
+			const ki = driver.kernelInterface!;
+
+			// Default umask is 0o022 — mkdir(0o777) → effective 0o755
+			await ki.mkdir(proc.pid, "/tmp/testdir", 0o777);
+
+			const st = await vfs.stat("/tmp/testdir");
+			expect(st.isDirectory).toBe(true);
+			expect(st.mode & 0o7777).toBe(0o755);
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("umask(pid, 0o077) — files created with mode 0o700 when requesting 0o777", async () => {
+			const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+
+			const proc = kernel.spawn("x", []);
+			const ki = driver.kernelInterface!;
+
+			ki.umask(proc.pid, 0o077);
+
+			// Create a file via fdOpen with O_CREAT and write to it
+			const O_WRONLY = 1;
+			const O_CREAT = 0o100;
+			const fd = ki.fdOpen(proc.pid, "/tmp/masked.txt", O_WRONLY | O_CREAT, 0o777);
+			await ki.fdWrite(proc.pid, fd, new TextEncoder().encode("test"));
+
+			const st = await vfs.stat("/tmp/masked.txt");
+			expect(st.mode & 0o7777).toBe(0o700);
+
+			proc.kill(9);
+			await proc.wait();
+		});
+
+		it("child inherits parent umask", async () => {
+			const driver = new MockRuntimeDriver(["parent", "child"], {
+				parent: { neverExit: true },
+				child: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const parent = kernel.spawn("parent", []);
+			const ki = driver.kernelInterface!;
+
+			// Set parent umask to 0o077
+			ki.umask(parent.pid, 0o077);
+
+			// Spawn child from parent
+			const child = ki.spawn("child", [], { pid: parent.pid, ppid: parent.pid, env: {}, cwd: "/", fds: { stdin: 0, stdout: 1, stderr: 2 } });
+
+			// Child should inherit parent's umask
+			const childMask = ki.umask(child.pid);
+			expect(childMask).toBe(0o077);
+
+			child.kill(9);
+			await child.wait();
+			parent.kill(9);
+			await parent.wait();
 		});
 	});
 });

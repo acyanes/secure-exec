@@ -1,0 +1,14 @@
+# Vendored wasi-libc source (downloaded by patch-wasi-libc.sh)
+/vendor/
+
+# C library dependencies (downloaded at build time via make fetch-libs)
+/libs/
+
+# Download cache
+/.cache/
+
+# Patched sysroot (built from vendored wasi-libc)
+/sysroot/
+
+# Compiled WASM binaries (output of make programs)
+/build/

@@ -47,6 +47,12 @@ export interface Kernel {
 	spawn(command: string, args: string[], options?: SpawnOptions): ManagedProcess;
 
 	/**
+	 * Flush pending /bin stub entries created by on-demand command discovery.
+	 * Ensures VFS is consistent before shell PATH lookups.
+	 */
+	flushPendingBinEntries(): Promise<void>;
+
+	/**
 	 * Open an interactive shell on a PTY.
 	 * Wires PTY + process groups + termios for terminal use.
 	 */
@@ -178,6 +184,14 @@ export interface RuntimeDriver {
 	 */
 	spawn(command: string, args: string[], ctx: ProcessContext): DriverProcess;
 
+	/**
+	 * On-demand command discovery. Called by the kernel when a command is not
+	 * found in the registry. Returns true if this driver can handle the command
+	 * (e.g. found a matching WASM binary on disk). The kernel then registers
+	 * the command and retries the spawn.
+	 */
+	tryResolve?(command: string): boolean;
+
 	/** Cleanup resources */
 	dispose(): Promise<void>;
 }
@@ -239,6 +253,13 @@ export interface KernelInterface {
 	fdDup(pid: number, fd: number): number;
 	fdDup2(pid: number, oldFd: number, newFd: number): void;
 	fdStat(pid: number, fd: number): FDStat;
+	fdSetCloexec(pid: number, fd: number, value: boolean): void;
+	fdGetCloexec(pid: number, fd: number): boolean;
+	fcntl(pid: number, fd: number, cmd: number, arg?: number): number;
+
+	// Advisory file locking
+	/** Apply or remove an advisory lock on the file referenced by fd. */
+	flock(pid: number, fd: number, operation: number): void;
 
 	// Process operations
 	spawn(
@@ -253,7 +274,7 @@ export interface KernelInterface {
 	waitpid(
 		pid: number,
 		options?: number,
-	): Promise<{ pid: number; status: number }>;
+	): Promise<{ pid: number; status: number; termSignal: number } | null>;
 	kill(pid: number, signal: number): void;
 	getpid(pid: number): number;
 	getppid(pid: number): number;
@@ -300,7 +321,24 @@ export interface KernelInterface {
 
 	// Environment
 	getenv(pid: number): Record<string, string>;
+	setenv(pid: number, key: string, value: string): void;
+	unsetenv(pid: number, key: string): void;
 	getcwd(pid: number): string;
+
+	// Working directory
+	chdir(pid: number, path: string): Promise<void>;
+
+	// Alarm (SIGALRM)
+	/** Schedule SIGALRM delivery after `seconds`. Returns previous alarm remaining (0 if none). alarm(pid, 0) cancels. */
+	alarm(pid: number, seconds: number): number;
+
+	// File mode creation mask
+	/** Get/set the process's umask. Returns the previous mask. If newMask is omitted, mask is unchanged. */
+	umask(pid: number, newMask?: number): number;
+
+	// Directory creation with umask
+	/** Create a directory, applying the process's umask to the given mode. */
+	mkdir(pid: number, path: string, mode?: number): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +357,8 @@ export interface FileDescription {
 	cursor: bigint;
 	flags: number;
 	refCount: number;
+	/** Mode to apply when the file is first created (set by O_CREAT with umask). */
+	creationMode?: number;
 }
 
 export interface FDEntry {
@@ -326,6 +366,8 @@ export interface FDEntry {
 	description: FileDescription;
 	rights: bigint;
 	filetype: number;
+	/** Close-on-exec flag (FD_CLOEXEC). Per-FD, not per-description. */
+	cloexec: boolean;
 }
 
 // FD open flags
@@ -336,6 +378,17 @@ export const O_CREAT = 0o100;
 export const O_EXCL = 0o200;
 export const O_TRUNC = 0o1000;
 export const O_APPEND = 0o2000;
+export const O_CLOEXEC = 0o2000000;
+
+// fcntl commands
+export const F_DUPFD = 0;
+export const F_GETFD = 1;
+export const F_SETFD = 2;
+export const F_GETFL = 3;
+export const F_DUPFD_CLOEXEC = 1030;
+
+// FD flags (for F_GETFD / F_SETFD)
+export const FD_CLOEXEC = 1;
 
 // Seek whence
 export const SEEK_SET = 0;
@@ -366,9 +419,15 @@ export interface ProcessEntry {
 	args: string[];
 	status: "running" | "stopped" | "exited";
 	exitCode: number | null;
+	/** How the process terminated: 'normal' for exit(), 'signal' for kill(). */
+	exitReason: "normal" | "signal" | null;
+	/** Signal that killed the process (0 = normal exit). */
+	termSignal: number;
 	exitTime: number | null;
 	env: Record<string, string>;
 	cwd: string;
+	/** File mode creation mask (POSIX umask). Inherited from parent, default 0o022. */
+	umask: number;
 	driverProcess: DriverProcess;
 }
 
@@ -472,12 +531,21 @@ export function defaultTermios(): Termios {
 }
 
 // Signals
-export const SIGTERM = 15;
-export const SIGKILL = 9;
+export const SIGHUP = 1;
 export const SIGINT = 2;
 export const SIGQUIT = 3;
+export const SIGKILL = 9;
+export const SIGPIPE = 13;
+export const SIGALRM = 14;
+export const SIGTERM = 15;
+export const SIGCHLD = 17;
+export const SIGCONT = 18;
+export const SIGSTOP = 19;
 export const SIGTSTP = 20;
 export const SIGWINCH = 28;
+
+// waitpid options (POSIX bitmask)
+export const WNOHANG = 1;
 
 // ---------------------------------------------------------------------------
 // Pipe types

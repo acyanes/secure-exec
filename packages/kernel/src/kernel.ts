@@ -29,6 +29,7 @@ import { FDTableManager, ProcessFDTable } from "./fd-table.js";
 import { ProcessTable } from "./process-table.js";
 import { PipeManager } from "./pipe-manager.js";
 import { PtyManager } from "./pty.js";
+import { FileLockManager } from "./file-lock.js";
 import { CommandRegistry } from "./command-registry.js";
 import { wrapFileSystem, checkChildProcess } from "./permissions.js";
 import { UserManager } from "./user.js";
@@ -41,8 +42,16 @@ import {
 	SEEK_CUR,
 	SEEK_END,
 	O_APPEND,
+	O_CREAT,
 	SIGTERM,
+	SIGPIPE,
 	SIGWINCH,
+	F_DUPFD,
+	F_GETFD,
+	F_SETFD,
+	F_GETFL,
+	F_DUPFD_CLOEXEC,
+	FD_CLOEXEC,
 	KernelError,
 } from "./types.js";
 
@@ -55,9 +64,16 @@ class KernelImpl implements Kernel {
 	private fdTableManager = new FDTableManager();
 	private processTable = new ProcessTable();
 	private pipeManager = new PipeManager();
-	private ptyManager = new PtyManager((pgid, signal) => {
-		try { this.processTable.kill(-pgid, signal); } catch { /* no-op if pgid gone */ }
+	private ptyManager = new PtyManager((pgid, signal, excludeLeaders) => {
+		try {
+			if (excludeLeaders) {
+				return this.processTable.killGroupExcludeLeaders(pgid, signal);
+			}
+			this.processTable.kill(-pgid, signal);
+		} catch { /* no-op if pgid gone */ }
+		return 0;
 	});
+	private fileLockManager = new FileLockManager();
 	private commandRegistry = new CommandRegistry();
 	private userManager: UserManager;
 	private drivers: RuntimeDriver[] = [];
@@ -67,6 +83,7 @@ class KernelImpl implements Kernel {
 	private env: Record<string, string>;
 	private cwd: string;
 	private disposed = false;
+	private pendingBinEntries: Promise<void>[] = [];
 
 	constructor(options: KernelOptions) {
 		// Apply device layer over the base filesystem
@@ -84,11 +101,23 @@ class KernelImpl implements Kernel {
 		this.cwd = options.cwd ?? "/home/user";
 		this.userManager = new UserManager();
 
-		// Clean up FD table and driver PID ownership when a process exits
+		// Clean up FD table when a process exits (driverPids preserved for waitpid)
 		this.processTable.onProcessExit = (pid) => {
+			this.cleanupProcessFDs(pid);
+		};
+		// Clean up driver PID ownership when zombie is reaped
+		this.processTable.onProcessReap = (pid) => {
 			const entry = this.processTable.get(pid);
 			if (entry) this.driverPids.get(entry.driver)?.delete(pid);
-			this.cleanupProcessFDs(pid);
+		};
+
+		// Deliver SIGPIPE default action: terminate writer with 128+SIGPIPE
+		this.pipeManager.onBrokenPipe = (pid) => {
+			try {
+				this.processTable.kill(pid, SIGPIPE);
+			} catch {
+				// Process may already be exited
+			}
 		};
 	}
 
@@ -133,8 +162,22 @@ class KernelImpl implements Kernel {
 		this.drivers.length = 0;
 	}
 
+	/**
+	 * Flush pending /bin stub entries created by on-demand command discovery.
+	 * Ensures VFS is consistent before shell PATH lookups.
+	 */
+	async flushPendingBinEntries(): Promise<void> {
+		if (this.pendingBinEntries.length > 0) {
+			await Promise.all(this.pendingBinEntries);
+			this.pendingBinEntries.length = 0;
+		}
+	}
+
 	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
 		this.assertNotDisposed();
+
+		// Flush pending /bin stubs before shell PATH lookup
+		await this.flushPendingBinEntries();
 
 		// Route through shell
 		const shell = this.commandRegistry.resolve("sh");
@@ -239,6 +282,7 @@ class KernelImpl implements Kernel {
 		// Shell becomes its own process group leader, set as PTY foreground
 		this.processTable.setpgid(proc.pid, proc.pid);
 		this.ptyManager.setForegroundPgid(masterDescId, proc.pid);
+		this.ptyManager.setSessionLeader(masterDescId, proc.pid);
 
 		// Close controller's copy of slave FD (child inherited its own copy via fork).
 		// Without this, slave refCount stays >0 after shell exits, preventing EOF on master.
@@ -383,7 +427,31 @@ class KernelImpl implements Kernel {
 		options?: SpawnOptions,
 		callerPid?: number,
 	): InternalProcess {
-		const driver = this.commandRegistry.resolve(command);
+		let driver = this.commandRegistry.resolve(command);
+
+		// On-demand discovery: ask mounted drivers to resolve unknown commands
+		if (!driver) {
+			const basename = command.includes("/")
+				? command.split("/").pop()!
+				: command;
+			if (basename) {
+				for (const d of this.drivers) {
+					if (d.tryResolve?.(basename)) {
+						this.commandRegistry.registerCommand(basename, d);
+						// Store pending promise so exec() can flush before shell PATH lookup
+						const p = this.commandRegistry.populateBinEntry(this.vfs, basename);
+						this.pendingBinEntries.push(p);
+						p.then(() => {
+							const idx = this.pendingBinEntries.indexOf(p);
+							if (idx >= 0) this.pendingBinEntries.splice(idx, 1);
+						});
+						driver = d;
+						break;
+					}
+				}
+			}
+		}
+
 		if (!driver) {
 			throw new KernelError("ENOENT", `command not found: ${command}`);
 		}
@@ -432,7 +500,7 @@ class KernelImpl implements Kernel {
 		let stdoutCb: ((data: Uint8Array) => void) | undefined;
 		let stderrCb: ((data: Uint8Array) => void) | undefined;
 		if (stdoutPiped) {
-			stdoutCb = this.createPipedOutputCallback(table, 1);
+			stdoutCb = this.createPipedOutputCallback(table, 1, pid);
 		} else {
 			if (options?.onStdout) {
 				stdoutCb = options.onStdout;
@@ -445,7 +513,7 @@ class KernelImpl implements Kernel {
 			if (!stdoutCb) stdoutCb = (data) => stdoutBuf.push(data);
 		}
 		if (stderrPiped) {
-			stderrCb = this.createPipedOutputCallback(table, 2);
+			stderrCb = this.createPipedOutputCallback(table, 2, pid);
 		} else {
 			if (options?.onStderr) {
 				stderrCb = options.onStderr;
@@ -458,11 +526,15 @@ class KernelImpl implements Kernel {
 			if (!stderrCb) stderrCb = (data) => stderrBuf.push(data);
 		}
 
+		// Inherit env from parent process if spawned by another process, else use kernel defaults
+		const parentEntry = callerPid ? this.processTable.get(callerPid) : undefined;
+		const baseEnv = parentEntry?.env ?? this.env;
+
 		// Build process context with pre-wired callbacks
 		const ctx: ProcessContext = {
 			pid,
 			ppid: callerPid ?? 0,
-			env: { ...this.env, ...options?.env },
+			env: { ...baseEnv, ...options?.env },
 			cwd: options?.cwd ?? this.cwd,
 			fds: { stdin: 0, stdout: 1, stderr: 2 },
 			onStdout: stdoutCb,
@@ -581,7 +653,20 @@ class KernelImpl implements Kernel {
 				}
 				const table = this.getTable(pid);
 				const filetype = FILETYPE_REGULAR_FILE;
-				return table.open(path, flags, filetype);
+				const fd = table.open(path, flags, filetype);
+
+				// Apply umask to creation mode when O_CREAT is set
+				if (flags & O_CREAT) {
+					const entry = this.processTable.get(pid);
+					const umask = entry?.umask ?? 0o022;
+					const requestedMode = mode ?? 0o666;
+					const fdEntry = table.get(fd);
+					if (fdEntry) {
+						fdEntry.description.creationMode = requestedMode & ~umask;
+					}
+				}
+
+				return fd;
 			},
 			fdRead: async (pid, fd, length) => {
 				assertOwns(pid);
@@ -614,7 +699,7 @@ class KernelImpl implements Kernel {
 				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
 
 				if (this.pipeManager.isPipe(entry.description.id)) {
-					return this.pipeManager.write(entry.description.id, data);
+					return this.pipeManager.write(entry.description.id, data, pid);
 				}
 
 				if (this.ptyManager.isPty(entry.description.id)) {
@@ -637,12 +722,11 @@ class KernelImpl implements Kernel {
 				// Close FD first (decrements refCount on shared FileDescription)
 				table.close(fd);
 
-				// Only signal pipe/pty closure when last reference is dropped
-				if (isPipe && entry.description.refCount <= 0) {
-					this.pipeManager.close(descId);
-				}
-				if (isPty && entry.description.refCount <= 0) {
-					this.ptyManager.close(descId);
+				// Only signal pipe/pty/lock closure when last reference is dropped
+				if (entry.description.refCount <= 0) {
+					if (isPipe) this.pipeManager.close(descId);
+					if (isPty) this.ptyManager.close(descId);
+					this.fileLockManager.releaseByDescription(descId);
 				}
 			},
 			fdSeek: async (pid, fd, offset, whence) => {
@@ -729,6 +813,53 @@ class KernelImpl implements Kernel {
 				assertOwns(pid);
 				return this.getTable(pid).stat(fd);
 			},
+			fdSetCloexec: (pid, fd, value) => {
+				assertOwns(pid);
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				entry.cloexec = value;
+			},
+			fdGetCloexec: (pid, fd) => {
+				assertOwns(pid);
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				return entry.cloexec;
+			},
+			fcntl: (pid, fd, cmd, arg) => {
+				assertOwns(pid);
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				switch (cmd) {
+					case F_DUPFD:
+						return table.dupMinFd(fd, arg ?? 0);
+					case F_DUPFD_CLOEXEC: {
+						const newFd = table.dupMinFd(fd, arg ?? 0);
+						table.get(newFd)!.cloexec = true;
+						return newFd;
+					}
+					case F_GETFD:
+						return entry.cloexec ? FD_CLOEXEC : 0;
+					case F_SETFD:
+						entry.cloexec = ((arg ?? 0) & FD_CLOEXEC) !== 0;
+						return 0;
+					case F_GETFL:
+						return entry.description.flags;
+					default:
+						throw new KernelError("EINVAL", `unsupported fcntl command ${cmd}`);
+				}
+			},
+
+			// Advisory file locking
+			flock: (pid, fd, operation) => {
+				assertOwns(pid);
+				const table = this.getTable(pid);
+				const entry = table.get(fd);
+				if (!entry) throw new KernelError("EBADF", `bad file descriptor ${fd}`);
+				this.fileLockManager.flock(entry.description.path, entry.description.id, operation);
+			},
 
 			// Process operations
 			spawn: (command, args, ctx) => {
@@ -743,9 +874,9 @@ class KernelImpl implements Kernel {
 					stderrFd: ctx.stderrFd,
 				}, ctx.ppid);
 			},
-			waitpid: (pid) => {
+			waitpid: (pid, options) => {
 				try { assertOwns(pid); } catch (e) { return Promise.reject(e); }
-				return this.processTable.waitpid(pid);
+				return this.processTable.waitpid(pid, options);
 			},
 			kill: (pid, signal) => {
 				// Negative PID = process group kill, handled by kernel directly
@@ -892,10 +1023,71 @@ class KernelImpl implements Kernel {
 				const entry = this.processTable.get(pid);
 				return entry?.env ?? { ...this.env };
 			},
+			setenv: (pid, key, value) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+				entry.env[key] = value;
+			},
+			unsetenv: (pid, key) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+				delete entry.env[key];
+			},
 			getcwd: (pid) => {
 				assertOwns(pid);
 				const entry = this.processTable.get(pid);
 				return entry?.cwd ?? this.cwd;
+			},
+
+			// Working directory
+			chdir: async (pid, path) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+
+				// Validate path exists and is a directory
+				let st: VirtualStat;
+				try {
+					st = await this.vfs.stat(path);
+				} catch {
+					throw new KernelError("ENOENT", `no such file or directory: ${path}`);
+				}
+				if (!st.isDirectory) {
+					throw new KernelError("ENOTDIR", `not a directory: ${path}`);
+				}
+
+				entry.cwd = path;
+			},
+
+			// Alarm (SIGALRM)
+			alarm: (pid, seconds) => {
+				assertOwns(pid);
+				return this.processTable.alarm(pid, seconds);
+			},
+
+			// File mode creation mask
+			umask: (pid, newMask?) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				if (!entry) throw new KernelError("ESRCH", `no such process ${pid}`);
+				const old = entry.umask;
+				if (newMask !== undefined) {
+					entry.umask = newMask & 0o777;
+				}
+				return old;
+			},
+
+			// Directory creation with umask
+			mkdir: async (pid, path, mode?) => {
+				assertOwns(pid);
+				const entry = this.processTable.get(pid);
+				const umask = entry?.umask ?? 0o022;
+				const requestedMode = mode ?? 0o777;
+				const effectiveMode = requestedMode & ~umask;
+				await this.vfs.mkdir(path);
+				await this.vfs.chmod(path, effectiveMode);
 			},
 		};
 	}
@@ -997,6 +1189,7 @@ class KernelImpl implements Kernel {
 	private createPipedOutputCallback(
 		table: ProcessFDTable,
 		fd: number,
+		pid?: number,
 	): ((data: Uint8Array) => void) | undefined {
 		const entry = table.get(fd);
 		if (!entry) return undefined;
@@ -1004,7 +1197,7 @@ class KernelImpl implements Kernel {
 		const descId = entry.description.id;
 		if (this.pipeManager.isPipe(descId)) {
 			return (data) => {
-				try { this.pipeManager.write(descId, data); } catch { /* pipe closed */ }
+				try { this.pipeManager.write(descId, data, pid); } catch { /* pipe closed */ }
 			};
 		}
 		if (this.ptyManager.isPty(descId)) {
@@ -1020,13 +1213,16 @@ class KernelImpl implements Kernel {
 		const table = this.fdTableManager.get(pid);
 		if (!table) return;
 
-		// Collect pipe/PTY descriptions before closing so we can check refCounts after
-		const managedDescs: { id: number; description: { refCount: number }; type: "pipe" | "pty" }[] = [];
+		// Collect managed descriptions before closing so we can check refCounts after
+		const managedDescs: { id: number; description: { refCount: number }; type: "pipe" | "pty" | "lock" }[] = [];
 		for (const entry of table) {
-			if (this.pipeManager.isPipe(entry.description.id)) {
-				managedDescs.push({ id: entry.description.id, description: entry.description, type: "pipe" });
-			} else if (this.ptyManager.isPty(entry.description.id)) {
-				managedDescs.push({ id: entry.description.id, description: entry.description, type: "pty" });
+			const descId = entry.description.id;
+			if (this.pipeManager.isPipe(descId)) {
+				managedDescs.push({ id: descId, description: entry.description, type: "pipe" });
+			} else if (this.ptyManager.isPty(descId)) {
+				managedDescs.push({ id: descId, description: entry.description, type: "pty" });
+			} else if (this.fileLockManager.hasLock(descId)) {
+				managedDescs.push({ id: descId, description: entry.description, type: "lock" });
 			}
 		}
 
@@ -1037,17 +1233,20 @@ class KernelImpl implements Kernel {
 		for (const { id, description, type } of managedDescs) {
 			if (description.refCount <= 0) {
 				if (type === "pipe") this.pipeManager.close(id);
-				else this.ptyManager.close(id);
+				else if (type === "pty") this.ptyManager.close(id);
+				else if (type === "lock") this.fileLockManager.releaseByDescription(id);
 			}
 		}
 	}
 
 	private async vfsWrite(entry: FDEntry, data: Uint8Array): Promise<number> {
 		let content: Uint8Array;
+		let isNewFile = false;
 		try {
 			content = await this.vfs.readFile(entry.description.path);
 		} catch {
 			content = new Uint8Array(0);
+			isNewFile = true;
 		}
 
 		// O_APPEND: every write seeks to end of file first (POSIX)
@@ -1059,6 +1258,13 @@ class KernelImpl implements Kernel {
 		newContent.set(content);
 		newContent.set(data, cursor);
 		await this.vfs.writeFile(entry.description.path, newContent);
+
+		// Apply creation mode from umask on first write that creates the file
+		if (isNewFile && entry.description.creationMode !== undefined) {
+			await this.vfs.chmod(entry.description.path, entry.description.creationMode);
+			entry.description.creationMode = undefined;
+		}
+
 		entry.description.cursor = BigInt(endPos);
 		return data.length;
 	}

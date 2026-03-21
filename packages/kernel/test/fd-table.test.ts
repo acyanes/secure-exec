@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ProcessFDTable, FDTableManager } from "../src/fd-table.js";
-import { O_RDONLY, O_WRONLY, FILETYPE_REGULAR_FILE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
+import { O_RDONLY, O_WRONLY, O_CLOEXEC, FILETYPE_REGULAR_FILE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
 
 describe("ProcessFDTable", () => {
 	it("pre-allocates stdio FDs 0, 1, 2", () => {
@@ -95,5 +95,117 @@ describe("ProcessFDTable", () => {
 		const table = manager.create(1);
 
 		expect(() => table.stat(999)).toThrow("EBADF");
+	});
+
+	it("open with O_CLOEXEC sets cloexec on the FD entry", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd = table.open("/tmp/test.txt", O_RDONLY | O_CLOEXEC);
+		const entry = table.get(fd)!;
+		expect(entry.cloexec).toBe(true);
+		// O_CLOEXEC should be stripped from stored flags
+		expect(entry.description.flags).toBe(O_RDONLY);
+	});
+
+	it("open without O_CLOEXEC defaults cloexec to false", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd = table.open("/tmp/test.txt", O_RDONLY);
+		expect(table.get(fd)!.cloexec).toBe(false);
+	});
+
+	it("fork skips FDs with cloexec set", () => {
+		const manager = new FDTableManager();
+		const parent = manager.create(1);
+
+		const normalFd = parent.open("/tmp/normal.txt", O_RDONLY);
+		const cloexecFd = parent.open("/tmp/secret.txt", O_RDONLY | O_CLOEXEC);
+
+		const child = manager.fork(1, 2);
+
+		// Normal FD is inherited
+		expect(child.get(normalFd)).toBeDefined();
+		// Cloexec FD is NOT inherited
+		expect(child.get(cloexecFd)).toBeUndefined();
+	});
+
+	it("fork inherits FDs where cloexec was cleared", () => {
+		const manager = new FDTableManager();
+		const parent = manager.create(1);
+
+		const fd = parent.open("/tmp/test.txt", O_RDONLY | O_CLOEXEC);
+		expect(parent.get(fd)!.cloexec).toBe(true);
+
+		// Clear cloexec
+		parent.get(fd)!.cloexec = false;
+
+		const child = manager.fork(1, 2);
+		expect(child.get(fd)).toBeDefined();
+	});
+
+	it("dupMinFd allocates at or above minFd", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd = table.open("/tmp/test.txt", O_RDONLY);
+		const newFd = table.dupMinFd(fd, 10);
+		expect(newFd).toBe(10);
+		// Shares same description
+		expect(table.get(fd)!.description).toBe(table.get(newFd)!.description);
+	});
+
+	it("dupMinFd skips occupied FDs", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd = table.open("/tmp/test.txt", O_RDONLY);
+		// Occupy FD 10
+		table.dup2(fd, 10);
+		// dupMinFd with minFd=10 should skip to 11
+		const newFd = table.dupMinFd(fd, 10);
+		expect(newFd).toBe(11);
+	});
+
+	it("dupMinFd clears cloexec on new FD", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd = table.open("/tmp/test.txt", O_RDONLY | O_CLOEXEC);
+		expect(table.get(fd)!.cloexec).toBe(true);
+
+		const newFd = table.dupMinFd(fd, 10);
+		// New FD from dupMinFd should NOT inherit cloexec
+		expect(table.get(newFd)!.cloexec).toBe(false);
+	});
+
+	it("dup clears cloexec on new FD", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd = table.open("/tmp/test.txt", O_RDONLY | O_CLOEXEC);
+		expect(table.get(fd)!.cloexec).toBe(true);
+
+		const newFd = table.dup(fd);
+		expect(table.get(newFd)!.cloexec).toBe(false);
+	});
+
+	it("cloexec is per-FD, not per-description", () => {
+		const manager = new FDTableManager();
+		const table = manager.create(1);
+
+		const fd1 = table.open("/tmp/test.txt", O_RDONLY);
+		const fd2 = table.dup(fd1);
+
+		// Same description
+		expect(table.get(fd1)!.description).toBe(table.get(fd2)!.description);
+
+		// Set cloexec on fd1 only
+		table.get(fd1)!.cloexec = true;
+
+		// fd2 should still be false
+		expect(table.get(fd1)!.cloexec).toBe(true);
+		expect(table.get(fd2)!.cloexec).toBe(false);
 	});
 });

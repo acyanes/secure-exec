@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ProcessTable } from "../src/process-table.js";
+import { WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG } from "../src/wstatus.js";
+import { WNOHANG, SIGCHLD, SIGALRM, SIGCONT, SIGSTOP, SIGTSTP } from "../src/types.js";
 import type { DriverProcess, ProcessContext } from "../src/types.js";
 
 function createMockDriverProcess(exitAfterMs?: number): DriverProcess {
@@ -62,8 +64,9 @@ describe("ProcessTable", () => {
 		table.register(table.allocatePid(), "wasmvm", "echo", ["hello"], createCtx(), proc);
 
 		const result = await table.waitpid(1);
-		expect(result.pid).toBe(1);
-		expect(result.status).toBe(0);
+		expect(result).not.toBeNull();
+		expect(result!.pid).toBe(1);
+		expect(result!.status).toBe(0);
 	});
 
 	it("waitpid resolves immediately for already-exited process", async () => {
@@ -75,7 +78,10 @@ describe("ProcessTable", () => {
 		table.markExited(1, 42);
 
 		const result = await table.waitpid(1);
-		expect(result.status).toBe(42);
+		expect(result).not.toBeNull();
+		// POSIX wstatus: normal exit = (exitCode << 8)
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(42);
 	});
 
 	it("kill routes to driver process", () => {
@@ -133,6 +139,86 @@ describe("ProcessTable", () => {
 		await expect(table.waitpid(9999)).rejects.toThrow(/ESRCH/);
 	});
 
+	// POSIX wstatus encoding tests
+	it("normal exit(42) — WIFEXITED=true, WEXITSTATUS=42", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "test", [], createCtx(), proc);
+		table.markExited(1, 42);
+
+		const result = await table.waitpid(1);
+		expect(result).not.toBeNull();
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(42);
+		expect(WIFSIGNALED(result!.status)).toBe(false);
+
+		// Verify exitReason on entry
+		const entry = table.get(1)!;
+		expect(entry.exitReason).toBe("normal");
+	});
+
+	it("killed by SIGKILL — WIFSIGNALED=true, WTERMSIG=9", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+
+		table.register(table.allocatePid(), "wasmvm", "sleep", ["100"], createCtx(), proc);
+
+		// Set up waiter before kill
+		const waitPromise = table.waitpid(1);
+
+		// Kill sets termSignal, then driver triggers onExit
+		table.kill(1, 9);
+		proc.onExit!(128 + 9);
+
+		const result = await waitPromise;
+		expect(result).not.toBeNull();
+		expect(WIFSIGNALED(result!.status)).toBe(true);
+		expect(WTERMSIG(result!.status)).toBe(9);
+		expect(WIFEXITED(result!.status)).toBe(false);
+
+		const entry = table.get(1)!;
+		expect(entry.exitReason).toBe("signal");
+		expect(entry.termSignal).toBe(9);
+	});
+
+	it("killed by SIGTERM — WIFSIGNALED=true, WTERMSIG=15", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+
+		table.register(table.allocatePid(), "wasmvm", "sleep", ["100"], createCtx(), proc);
+
+		// Set up waiter before kill
+		const waitPromise = table.waitpid(1);
+
+		// Kill sets termSignal, then driver triggers onExit
+		table.kill(1, 15);
+		proc.onExit!(128 + 15);
+
+		const result = await waitPromise;
+		expect(result).not.toBeNull();
+		expect(WIFSIGNALED(result!.status)).toBe(true);
+		expect(WTERMSIG(result!.status)).toBe(15);
+		expect(WIFEXITED(result!.status)).toBe(false);
+
+		const entry = table.get(1)!;
+		expect(entry.exitReason).toBe("signal");
+		expect(entry.termSignal).toBe(15);
+	});
+
+	it("normal exit(0) — WIFEXITED=true, WEXITSTATUS=0", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "true", [], createCtx(), proc);
+		table.markExited(1, 0);
+
+		const result = await table.waitpid(1);
+		expect(result).not.toBeNull();
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(0);
+		expect(WIFSIGNALED(result!.status)).toBe(false);
+		expect(result!.status).toBe(0); // (0 << 8) == 0
+	});
+
 	it("listProcesses returns read-only view", () => {
 		const table = new ProcessTable();
 		table.register(table.allocatePid(), "wasmvm", "ls", [], createCtx(), createMockDriverProcess());
@@ -142,5 +228,327 @@ describe("ProcessTable", () => {
 		expect(list.size).toBe(2);
 		expect(list.get(1)!.command).toBe("ls");
 		expect(list.get(2)!.command).toBe("node");
+	});
+
+	// WNOHANG tests
+	it("waitpid with WNOHANG returns null for running process", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "sleep", ["100"], createCtx(), proc);
+
+		const result = await table.waitpid(1, WNOHANG);
+		expect(result).toBeNull();
+	});
+
+	it("waitpid with WNOHANG returns result for exited process", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "true", [], createCtx(), proc);
+		table.markExited(1, 0);
+
+		const result = await table.waitpid(1, WNOHANG);
+		expect(result).not.toBeNull();
+		expect(result!.pid).toBe(1);
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(0);
+	});
+
+	it("waitpid without WNOHANG still blocks until exit", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess(20);
+		table.register(table.allocatePid(), "wasmvm", "echo", ["hi"], createCtx(), proc);
+
+		// Should block and resolve after the mock exits
+		const result = await table.waitpid(1);
+		expect(result).not.toBeNull();
+		expect(result!.pid).toBe(1);
+		expect(result!.status).toBe(0);
+	});
+
+	it("WNOHANG then normal wait — non-blocking check followed by blocking wait", async () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		table.register(table.allocatePid(), "wasmvm", "sleep", ["100"], createCtx(), proc);
+
+		// WNOHANG returns null while running
+		const nohangResult = await table.waitpid(1, WNOHANG);
+		expect(nohangResult).toBeNull();
+
+		// Normal wait blocks until exit
+		const waitPromise = table.waitpid(1);
+		proc.onExit!(0);
+		const result = await waitPromise;
+		expect(result).not.toBeNull();
+		expect(result!.pid).toBe(1);
+		expect(WIFEXITED(result!.status)).toBe(true);
+		expect(WEXITSTATUS(result!.status)).toBe(0);
+	});
+
+	it("waitpid with WNOHANG rejects with ESRCH for non-existent PID", async () => {
+		const table = new ProcessTable();
+		await expect(table.waitpid(9999, WNOHANG)).rejects.toThrow(/ESRCH/);
+	});
+
+	// -----------------------------------------------------------------------
+	// SIGCHLD
+	// -----------------------------------------------------------------------
+
+	it("child exit delivers SIGCHLD to parent", () => {
+		const table = new ProcessTable();
+		const parentKillSignals: number[] = [];
+
+		const parentProc = createMockDriverProcess();
+		const origParentKill = parentProc.kill;
+		parentProc.kill = (signal) => {
+			parentKillSignals.push(signal);
+			// SIGCHLD default action is ignore — do not terminate
+			if (signal === SIGCHLD) return;
+			origParentKill.call(parentProc, signal);
+		};
+
+		const parentPid = table.allocatePid();
+		table.register(parentPid, "wasmvm", "sh", [], createCtx(), parentProc);
+
+		const childProc = createMockDriverProcess();
+		const childPid = table.allocatePid();
+		table.register(childPid, "wasmvm", "echo", ["hi"], createCtx({ ppid: parentPid }), childProc);
+
+		// Child exits — parent should receive SIGCHLD
+		table.markExited(childPid, 0);
+		expect(parentKillSignals).toContain(SIGCHLD);
+	});
+
+	it("SIGCHLD not delivered when parent is already exited", () => {
+		const table = new ProcessTable();
+		const parentKillSignals: number[] = [];
+
+		const parentProc = createMockDriverProcess();
+		parentProc.kill = (signal) => { parentKillSignals.push(signal); };
+
+		const parentPid = table.allocatePid();
+		table.register(parentPid, "wasmvm", "sh", [], createCtx(), parentProc);
+
+		const childProc = createMockDriverProcess();
+		const childPid = table.allocatePid();
+		table.register(childPid, "wasmvm", "echo", [], createCtx({ ppid: parentPid }), childProc);
+
+		// Parent exits first
+		table.markExited(parentPid, 0);
+		parentKillSignals.length = 0;
+
+		// Child exits — parent is already dead, no SIGCHLD delivered
+		table.markExited(childPid, 0);
+		expect(parentKillSignals).not.toContain(SIGCHLD);
+	});
+
+	// -----------------------------------------------------------------------
+	// SIGALRM
+	// -----------------------------------------------------------------------
+
+	it("alarm(1) delivers SIGALRM after ~1 second", async () => {
+		vi.useFakeTimers();
+		try {
+			const table = new ProcessTable();
+			const killSignals: number[] = [];
+
+			const proc = createMockDriverProcess();
+			proc.kill = (signal) => { killSignals.push(signal); };
+
+			const pid = table.allocatePid();
+			table.register(pid, "wasmvm", "sleep", ["10"], createCtx(), proc);
+
+			const prev = table.alarm(pid, 1);
+			expect(prev).toBe(0);
+
+			// Advance time by 1 second
+			vi.advanceTimersByTime(1000);
+
+			expect(killSignals).toContain(SIGALRM);
+			// termSignal should be set
+			const entry = table.get(pid)!;
+			expect(entry.termSignal).toBe(SIGALRM);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("alarm(0) cancels pending alarm", async () => {
+		vi.useFakeTimers();
+		try {
+			const table = new ProcessTable();
+			const killSignals: number[] = [];
+
+			const proc = createMockDriverProcess();
+			proc.kill = (signal) => { killSignals.push(signal); };
+
+			const pid = table.allocatePid();
+			table.register(pid, "wasmvm", "sleep", ["10"], createCtx(), proc);
+
+			table.alarm(pid, 2);
+
+			// Cancel the alarm — returns remaining seconds (ceil)
+			const remaining = table.alarm(pid, 0);
+			expect(remaining).toBeGreaterThanOrEqual(1);
+
+			// Advance time well past the original alarm — no signal should fire
+			vi.advanceTimersByTime(5000);
+			expect(killSignals).not.toContain(SIGALRM);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("second alarm replaces first", async () => {
+		vi.useFakeTimers();
+		try {
+			const table = new ProcessTable();
+			const killSignals: number[] = [];
+
+			const proc = createMockDriverProcess();
+			proc.kill = (signal) => { killSignals.push(signal); };
+
+			const pid = table.allocatePid();
+			table.register(pid, "wasmvm", "sleep", ["10"], createCtx(), proc);
+
+			table.alarm(pid, 5);
+			const prev = table.alarm(pid, 1);
+			expect(prev).toBeGreaterThanOrEqual(4); // ~5 remaining from first
+
+			// Advance 1 second — second alarm fires
+			vi.advanceTimersByTime(1000);
+			expect(killSignals).toContain(SIGALRM);
+			killSignals.length = 0;
+
+			// Advance 5 more seconds — first alarm should NOT fire (was replaced)
+			vi.advanceTimersByTime(5000);
+			expect(killSignals).not.toContain(SIGALRM);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// -----------------------------------------------------------------------
+	// SIGTSTP / SIGCONT / SIGSTOP
+	// -----------------------------------------------------------------------
+
+	it("SIGTSTP sets process status to 'stopped'", () => {
+		const table = new ProcessTable();
+		const killSignals: number[] = [];
+
+		const proc = createMockDriverProcess();
+		const origKill = proc.kill;
+		proc.kill = (signal) => {
+			killSignals.push(signal);
+			// SIGTSTP suspends — don't terminate via origKill
+			if (signal === SIGTSTP) return;
+			origKill.call(proc, signal);
+		};
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "vim", ["-"], createCtx(), proc);
+
+		table.kill(pid, SIGTSTP);
+
+		const entry = table.get(pid)!;
+		expect(entry.status).toBe("stopped");
+		expect(killSignals).toContain(SIGTSTP);
+		// termSignal should NOT be set (process is stopped, not terminated)
+		expect(entry.termSignal).toBe(0);
+	});
+
+	it("SIGCONT resumes a stopped process", () => {
+		const table = new ProcessTable();
+		const killSignals: number[] = [];
+
+		const proc = createMockDriverProcess();
+		const origKill = proc.kill;
+		proc.kill = (signal) => {
+			killSignals.push(signal);
+			if (signal === SIGTSTP || signal === SIGCONT) return;
+			origKill.call(proc, signal);
+		};
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "vim", ["-"], createCtx(), proc);
+
+		// Stop the process
+		table.kill(pid, SIGTSTP);
+		expect(table.get(pid)!.status).toBe("stopped");
+
+		// Resume it
+		table.kill(pid, SIGCONT);
+		expect(table.get(pid)!.status).toBe("running");
+		expect(killSignals).toContain(SIGCONT);
+	});
+
+	it("SIGSTOP sets process status to 'stopped' (cannot be caught)", () => {
+		const table = new ProcessTable();
+		const killSignals: number[] = [];
+
+		const proc = createMockDriverProcess();
+		const origKill = proc.kill;
+		proc.kill = (signal) => {
+			killSignals.push(signal);
+			if (signal === SIGSTOP) return;
+			origKill.call(proc, signal);
+		};
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "cat", [], createCtx(), proc);
+
+		table.kill(pid, SIGSTOP);
+
+		const entry = table.get(pid)!;
+		expect(entry.status).toBe("stopped");
+		expect(killSignals).toContain(SIGSTOP);
+		expect(entry.termSignal).toBe(0);
+	});
+
+	it("SIGCONT on a running process is a no-op for status", () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		proc.kill = () => {}; // No-op
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "sleep", ["10"], createCtx(), proc);
+
+		table.kill(pid, SIGCONT);
+		expect(table.get(pid)!.status).toBe("running");
+	});
+
+	it("stop() and cont() methods work directly", () => {
+		const table = new ProcessTable();
+		const proc = createMockDriverProcess();
+		proc.kill = () => {};
+
+		const pid = table.allocatePid();
+		table.register(pid, "wasmvm", "cat", [], createCtx(), proc);
+
+		table.stop(pid);
+		expect(table.get(pid)!.status).toBe("stopped");
+
+		table.cont(pid);
+		expect(table.get(pid)!.status).toBe("running");
+	});
+
+	it("process group kill with SIGTSTP stops all members", () => {
+		const table = new ProcessTable();
+
+		const proc1 = createMockDriverProcess();
+		proc1.kill = (s) => { if (s === SIGTSTP) return; };
+		const proc2 = createMockDriverProcess();
+		proc2.kill = (s) => { if (s === SIGTSTP) return; };
+
+		const pid1 = table.allocatePid();
+		table.register(pid1, "wasmvm", "cat", [], createCtx(), proc1);
+		const pid2 = table.allocatePid();
+		table.register(pid2, "wasmvm", "grep", [], createCtx({ ppid: pid1 }), proc2);
+
+		// Both in same pgid (inherited from pid1)
+		expect(table.get(pid2)!.pgid).toBe(pid1);
+
+		table.kill(-pid1, SIGTSTP);
+		expect(table.get(pid1)!.status).toBe("stopped");
+		expect(table.get(pid2)!.status).toBe("stopped");
 	});
 });
