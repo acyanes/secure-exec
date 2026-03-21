@@ -1,8 +1,4 @@
 /**
- * @deprecated Canonical source moved to @secure-exec/node (US-003).
- * This copy is retained for backward compatibility during phased migration.
- * Will be removed in US-005 when kernel merges into core.
- *
  * ESM wrapper generator for built-in modules inside the isolate.
  *
  * The V8 isolate's ESM `import` can only resolve modules we explicitly provide.
@@ -11,7 +7,7 @@
  * with both default and named exports.
  */
 
-import { BUILTIN_NAMED_EXPORTS } from "./module-resolver.js";
+import { BUILTIN_NAMED_EXPORTS } from "./builtin-modules.js";
 
 function isValidIdentifier(value: string): boolean {
 	return /^[$A-Z_][0-9A-Z_$]*$/i.test(value);

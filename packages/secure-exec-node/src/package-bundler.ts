@@ -1,9 +1,4 @@
-/**
- * @deprecated Canonical source moved to @secure-exec/node (US-003).
- * This copy is retained for backward compatibility during phased migration.
- * Will be removed in US-005 when kernel merges into core.
- */
-import type { VirtualFileSystem } from "./types.js";
+import type { VirtualFileSystem } from "@secure-exec/kernel";
 
 // Path utilities (since we can't use node:path in a way that works in isolate)
 function dirname(p: string): string {

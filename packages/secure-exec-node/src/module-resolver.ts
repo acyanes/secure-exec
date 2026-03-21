@@ -1,8 +1,8 @@
 import {
 	normalizeBuiltinSpecifier,
 	getPathDir,
-	resolveModule,
-} from "@secure-exec/core";
+} from "./builtin-modules.js";
+import { resolveModule } from "./package-bundler.js";
 import { isESM } from "@secure-exec/core/internal/shared/esm-utils";
 import { parseJsonWithLimit } from "./isolate-bootstrap.js";
 import type { DriverDeps } from "./isolate-bootstrap.js";

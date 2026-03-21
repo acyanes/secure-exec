@@ -30,11 +30,10 @@ import {
 	HOST_BRIDGE_GLOBAL_KEYS,
 } from "./bridge-contract.js";
 import {
-	normalizeBuiltinSpecifier,
-	resolveModule,
-	loadFile,
 	mkdir,
 } from "@secure-exec/core";
+import { normalizeBuiltinSpecifier } from "./builtin-modules.js";
+import { resolveModule, loadFile } from "./package-bundler.js";
 import { transformDynamicImport } from "@secure-exec/core/internal/shared/esm-utils";
 import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
 import {
@@ -50,9 +49,9 @@ import type {
 	CommandExecutor,
 	NetworkAdapter,
 	SpawnedProcess,
-	VirtualFileSystem,
-	ResolutionCache,
 } from "@secure-exec/core";
+import type { VirtualFileSystem } from "@secure-exec/kernel";
+import type { ResolutionCache } from "./package-bundler.js";
 import type {
 	StdioEvent,
 	StdioHook,

@@ -1,8 +1,4 @@
 /**
- * @deprecated Canonical source moved to @secure-exec/node (US-003).
- * This copy is retained for backward compatibility during phased migration.
- * Will be removed in US-005 when kernel merges into core.
- *
  * Module classification and resolution helpers.
  *
  * Node built-ins are split into three tiers:

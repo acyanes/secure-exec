@@ -1,4 +1,4 @@
-import { createResolutionCache } from "@secure-exec/core";
+import { createResolutionCache } from "./package-bundler.js";
 import { getConsoleSetupCode } from "@secure-exec/core/internal/shared/console-formatter";
 import { getRequireSetupCode } from "@secure-exec/core/internal/shared/require-setup";
 import { getIsolateRuntimeSource, getInitialBridgeGlobalsSetupCode } from "@secure-exec/core";
@@ -66,8 +66,8 @@ import type {
 import type {
 	CommandExecutor,
 	SpawnedProcess,
-	ResolutionCache,
 } from "@secure-exec/core";
+import type { ResolutionCache } from "./package-bundler.js";
 import type {
 	OSConfig,
 	ProcessConfig,
