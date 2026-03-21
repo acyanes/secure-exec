@@ -10,6 +10,12 @@ Priority order is:
 3. Maintainability and performance follow-ups
 4. Examples, validation breadth, and product-shaping work
 
+---
+
+docs-internal/proposal-kernel-consolidation.md
+docs-internal/specs/custom-bindings.md
+docs-internal/specs/cli-tool-e2e.md
+
 ## Proposal: Kernel-First Package Consolidation
 
 - [ ] Migrate to kernel-first architecture — see [`docs-internal/proposal-kernel-consolidation.md`](proposal-kernel-consolidation.md)

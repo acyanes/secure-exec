@@ -1,5 +1,6 @@
 import { NodeRuntime } from "secure-exec";
-import type { NodeRuntimeDriverFactory, SystemDriver } from "secure-exec";
+import type { NodeRuntimeDriverFactory } from "secure-exec";
+import type { SystemDriver } from "@secure-exec/core";
 
 export interface TypeScriptDiagnostic {
 	code: number;

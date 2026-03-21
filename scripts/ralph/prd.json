@@ -151,7 +151,7 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 4 — Browser. Browser support is already broken/deferred, so this is organizational only."
     },
     {
@@ -165,7 +165,7 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 5 step 1. Breaking change — part of the semver major bump."
     },
     {

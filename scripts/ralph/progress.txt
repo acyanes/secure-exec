@@ -25,6 +25,7 @@
 - When converting .ts→.js imports for publishable packages, also check `new URL('./file.ts', import.meta.url)` patterns — sed for `from` won't catch them
 - Python kernel runtime (createPythonRuntime, PythonRuntimeDriver) canonical source is now secure-exec-python/src/kernel-runtime.ts
 - When deleting test directories from old packages, also update tsconfig.json to remove test/**/*.ts from include
+- Browser os-filesystem (InMemoryFileSystem) and worker-adapter (BrowserWorkerAdapter) canonical source is now secure-exec-browser/src/
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -260,4 +261,73 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - pyodide is both a production dependency (for the SDK driver) and an optional peerDependency — keep both declarations in package.json
   - runtime-python's tsconfig included test/**/*.ts which caused type errors after removing deps — update tsconfig when deleting test directories
   - The pattern is consistent across all runtime merges: copy source → convert imports → add subpath export → move tests → thin re-export old package
+---
+
+## 2026-03-21 05:10 - US-010
+- Merged os-browser (InMemoryFileSystem, BrowserWorkerAdapter) into publishable @secure-exec/browser
+- filesystem.ts → os-filesystem.ts (following os-node naming pattern from US-007)
+- worker.ts → worker-adapter.ts (following os-node naming pattern from US-007)
+- No import changes needed — os-browser files only import from @secure-exec/kernel which is already a dep of secure-exec-browser
+- Added InMemoryFileSystem, BrowserWorkerAdapter, WorkerHandle exports to secure-exec-browser/src/index.ts
+- Added ./internal/os-filesystem and ./internal/worker-adapter subpath exports to package.json
+- Made os-browser a thin re-export from @secure-exec/browser
+- Deleted original source files from os-browser (only index.ts re-export remains)
+- No tests to move (os-browser had no test directory)
+- Typecheck passes: 24/31 turbo tasks (1 failure is pre-existing sqlite VFS example)
+- Files changed:
+  - packages/secure-exec-browser/src/os-filesystem.ts (new — from os-browser)
+  - packages/secure-exec-browser/src/worker-adapter.ts (new — from os-browser)
+  - packages/secure-exec-browser/src/index.ts (added os-browser exports)
+  - packages/secure-exec-browser/package.json (added subpath exports)
+  - packages/os/browser/src/index.ts (thin re-export from @secure-exec/browser)
+  - packages/os/browser/src/filesystem.ts (deleted — moved)
+  - packages/os/browser/src/worker.ts (deleted — moved)
+  - packages/os/browser/package.json (added @secure-exec/browser dependency)
+  - pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - os-browser had no tests (browser support is deferred), so this was purely organizational
+  - os-browser's InMemoryFileSystem uses a unified Map<string, Entry> approach vs core's separate files/dirs/symlinks Maps — they're different implementations
+  - secure-exec-browser already had its own worker.ts (sandbox Web Worker), so os-browser's worker.ts needed renaming to worker-adapter.ts (same pattern as os-node)
+  - os-browser files used @secure-exec/kernel imports which resolve fine since secure-exec-browser already depends on @secure-exec/kernel
+  - os-browser's tsconfig uses Bundler resolution (resolves via dist/), so build must run before typecheck
+---
+
+## 2026-03-21 05:20 - US-011
+- Deleted NodeRuntime and PythonRuntime facade classes from @secure-exec/core (runtime.ts, python-runtime.ts)
+- Moved NodeRuntime class implementation directly into secure-exec package (src/runtime.ts) to preserve test compatibility
+- Removed SystemDriver, RuntimeDriverFactory, SharedRuntimeDriver, CommandExecutor from secure-exec public exports (index.ts)
+- Types remain available internally in src/types.ts and src/runtime-driver.ts for test use
+- Removed secure-exec/browser and secure-exec/python subpath exports from package.json
+- Deleted browser-runtime.ts and python-runtime.ts from secure-exec package
+- Updated test imports that referenced browser-runtime.ts:
+  - tests/test-suite/node.test.ts: import from index.js + @secure-exec/browser
+  - tests/test-suite/python.test.ts: import from shared/permissions.js
+  - tests/test-suite/node/runtime.ts: import from runtime.js
+  - tests/runtime-driver/browser/runtime.test.ts: import from index.js + @secure-exec/browser
+- Updated secure-exec-typescript to import SystemDriver from @secure-exec/core (added as dependency)
+- Updated playground to import from secure-exec + @secure-exec/browser (added as dependency)
+- Typecheck passes: 21/28 turbo tasks (1 failure is pre-existing sqlite VFS example)
+- Files changed:
+  - packages/secure-exec-core/src/index.ts (removed facade exports)
+  - packages/secure-exec-core/src/runtime.ts (deleted)
+  - packages/secure-exec-core/src/python-runtime.ts (deleted)
+  - packages/secure-exec/src/runtime.ts (replaced re-export with full class implementation)
+  - packages/secure-exec/src/index.ts (removed old types from public exports)
+  - packages/secure-exec/src/browser-runtime.ts (deleted)
+  - packages/secure-exec/src/python-runtime.ts (deleted)
+  - packages/secure-exec/package.json (removed browser/python subpath exports)
+  - packages/secure-exec-typescript/src/index.ts (SystemDriver import from @secure-exec/core)
+  - packages/secure-exec-typescript/package.json (added @secure-exec/core dep)
+  - packages/playground/frontend/app.ts (imports from secure-exec + @secure-exec/browser)
+  - packages/playground/package.json (added @secure-exec/browser dep)
+  - packages/secure-exec/tests/test-suite/node.test.ts (updated imports)
+  - packages/secure-exec/tests/test-suite/python.test.ts (updated imports)
+  - packages/secure-exec/tests/test-suite/node/runtime.ts (updated imports)
+  - packages/secure-exec/tests/runtime-driver/browser/runtime.test.ts (updated imports)
+  - pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - When removing public exports, keep types in internal files (types.ts, runtime-driver.ts) that tests import via relative paths — public API = index.ts exports only
+  - NodeRuntime facade depends on createNetworkStub, filterEnv from core — these remain core exports
+  - browser-runtime.ts was a convenience re-export used by both test-suite tests and browser runtime tests — update all references when deleting
+  - playground imports from secure-exec/browser — needs @secure-exec/browser as direct dependency when subpath removed
 ---

@@ -256,11 +256,6 @@ export {
 // Generated polyfills.
 export { POLYFILL_CODE_MAP } from "./generated/polyfills.js";
 
-// Runtime facades.
-export { NodeRuntime } from "./runtime.js";
-export type { NodeRuntimeOptions } from "./runtime.js";
-export { PythonRuntime } from "./python-runtime.js";
-export type { PythonRuntimeOptions } from "./python-runtime.js";
 
 // Filesystem helpers.
 export type { DirEntry, StatInfo } from "./fs-helpers.js";
