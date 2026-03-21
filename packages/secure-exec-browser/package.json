@@ -48,6 +48,7 @@
   },
   "dependencies": {
     "@secure-exec/core": "workspace:*",
+    "@secure-exec/kernel": "workspace:*",
     "sucrase": "^3.35.0"
   },
   "devDependencies": {

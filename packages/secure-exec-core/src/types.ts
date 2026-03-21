@@ -3,11 +3,14 @@
  *
  * This interface abstracts filesystem operations needed by the sandbox.
  */
+
+/** @deprecated Use VirtualDirEntry from @secure-exec/kernel instead. */
 export interface VirtualDirEntry {
 	name: string;
 	isDirectory: boolean;
 }
 
+/** @deprecated Use VirtualStat from @secure-exec/kernel instead. */
 export interface VirtualStat {
 	mode: number;
 	size: number;
@@ -19,6 +22,7 @@ export interface VirtualStat {
 	birthtimeMs: number;
 }
 
+/** @deprecated Use VirtualFileSystem from @secure-exec/kernel instead. */
 export interface VirtualFileSystem {
 	/**
 	 * Read a file as binary data.
@@ -271,13 +275,16 @@ export interface NetworkAdapter {
 	): void;
 }
 
+/** @deprecated Use PermissionDecision from @secure-exec/kernel instead. */
 export interface PermissionDecision {
 	allow: boolean;
 	reason?: string;
 }
 
+/** @deprecated Use PermissionCheck from @secure-exec/kernel instead. */
 export type PermissionCheck<T> = (request: T) => PermissionDecision;
 
+/** @deprecated Use FsAccessRequest from @secure-exec/kernel instead. */
 export interface FsAccessRequest {
 	op:
 		| "read"
@@ -299,6 +306,7 @@ export interface FsAccessRequest {
 	path: string;
 }
 
+/** @deprecated Use NetworkAccessRequest from @secure-exec/kernel instead. */
 export interface NetworkAccessRequest {
 	op: "fetch" | "http" | "dns" | "listen" | "connect";
 	url?: string;
@@ -306,6 +314,7 @@ export interface NetworkAccessRequest {
 	hostname?: string;
 }
 
+/** @deprecated Use ChildProcessAccessRequest from @secure-exec/kernel instead. */
 export interface ChildProcessAccessRequest {
 	command: string;
 	args: string[];
@@ -313,12 +322,14 @@ export interface ChildProcessAccessRequest {
 	env?: Record<string, string>;
 }
 
+/** @deprecated Use EnvAccessRequest from @secure-exec/kernel instead. */
 export interface EnvAccessRequest {
 	op: "read" | "write";
 	key: string;
 	value?: string;
 }
 
+/** @deprecated Use Permissions from @secure-exec/kernel instead. */
 export interface Permissions {
 	fs?: PermissionCheck<FsAccessRequest>;
 	network?: PermissionCheck<NetworkAccessRequest>;

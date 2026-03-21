@@ -16,6 +16,8 @@ import type {
   KernelInterface,
   ProcessContext,
   DriverProcess,
+  Permissions,
+  VirtualFileSystem,
 } from '@secure-exec/kernel';
 import {
   NodeExecutionDriver,
@@ -27,8 +29,6 @@ import {
 } from '@secure-exec/core';
 import type {
   CommandExecutor,
-  Permissions,
-  VirtualFileSystem,
 } from '@secure-exec/core';
 
 export interface NodeRuntimeOptions {
@@ -198,43 +198,22 @@ function createKernelVfsAdapter(kernelVfs: KernelInterface['vfs']): VirtualFileS
     readDirWithTypes: (path) => kernelVfs.readDirWithTypes(path),
     writeFile: (path, content) => kernelVfs.writeFile(path, content),
     createDir: (path) => kernelVfs.createDir(path),
-    mkdir: (path) => kernelVfs.mkdir(path),
+    mkdir: (path, options?) => kernelVfs.mkdir(path, options),
     exists: (path) => kernelVfs.exists(path),
-    stat: async (path) => {
-      const s = await kernelVfs.stat(path);
-      return {
-        mode: s.mode,
-        size: s.size,
-        isDirectory: s.isDirectory,
-        atimeMs: s.atimeMs,
-        mtimeMs: s.mtimeMs,
-        ctimeMs: s.ctimeMs,
-        birthtimeMs: s.birthtimeMs,
-      };
-    },
+    stat: (path) => kernelVfs.stat(path),
     removeFile: (path) => kernelVfs.removeFile(path),
     removeDir: (path) => kernelVfs.removeDir(path),
     rename: (oldPath, newPath) => kernelVfs.rename(oldPath, newPath),
     symlink: (target, linkPath) => kernelVfs.symlink(target, linkPath),
     readlink: (path) => kernelVfs.readlink(path),
-    lstat: async (path) => {
-      const s = await kernelVfs.lstat(path);
-      return {
-        mode: s.mode,
-        size: s.size,
-        isDirectory: s.isDirectory,
-        isSymbolicLink: s.isSymbolicLink,
-        atimeMs: s.atimeMs,
-        mtimeMs: s.mtimeMs,
-        ctimeMs: s.ctimeMs,
-        birthtimeMs: s.birthtimeMs,
-      };
-    },
+    lstat: (path) => kernelVfs.lstat(path),
     link: (oldPath, newPath) => kernelVfs.link(oldPath, newPath),
     chmod: (path, mode) => kernelVfs.chmod(path, mode),
     chown: (path, uid, gid) => kernelVfs.chown(path, uid, gid),
     utimes: (path, atime, mtime) => kernelVfs.utimes(path, atime, mtime),
     truncate: (path, length) => kernelVfs.truncate(path, length),
+    realpath: (path) => kernelVfs.realpath(path),
+    pread: (path, offset, length) => kernelVfs.pread(path, offset, length),
   };
 }
 
@@ -284,16 +263,21 @@ function createHostFallbackVfs(base: VirtualFileSystem): VirtualFileSystem {
           mode: s.mode,
           size: s.size,
           isDirectory: s.isDirectory(),
+          isSymbolicLink: false,
           atimeMs: s.atimeMs,
           mtimeMs: s.mtimeMs,
           ctimeMs: s.ctimeMs,
           birthtimeMs: s.birthtimeMs,
+          ino: s.ino,
+          nlink: s.nlink,
+          uid: s.uid,
+          gid: s.gid,
         };
       }
     },
     writeFile: (path, content) => base.writeFile(path, content),
     createDir: (path) => base.createDir(path),
-    mkdir: (path) => base.mkdir(path),
+    mkdir: (path, options?) => base.mkdir(path, options),
     removeFile: (path) => base.removeFile(path),
     removeDir: (path) => base.removeDir(path),
     rename: (oldPath, newPath) => base.rename(oldPath, newPath),
@@ -305,6 +289,23 @@ function createHostFallbackVfs(base: VirtualFileSystem): VirtualFileSystem {
     chown: (path, uid, gid) => base.chown(path, uid, gid),
     utimes: (path, atime, mtime) => base.utimes(path, atime, mtime),
     truncate: (path, length) => base.truncate(path, length),
+    realpath: async (path) => {
+      try { return await base.realpath(path); }
+      catch { return await fsPromises.realpath(path); }
+    },
+    pread: async (path, offset, length) => {
+      try { return await base.pread(path, offset, length); }
+      catch {
+        const handle = await fsPromises.open(path, 'r');
+        try {
+          const buf = new Uint8Array(length);
+          const { bytesRead } = await handle.read(buf, 0, length, offset);
+          return buf.slice(0, bytesRead);
+        } finally {
+          await handle.close();
+        }
+      }
+    },
   };
 }
 

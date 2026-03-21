@@ -1,11 +1,13 @@
 import { createRequire } from "node:module";
 import type {
+	Permissions,
+	VirtualFileSystem,
+} from "@secure-exec/kernel";
+import type {
 	CommandExecutor,
 	NetworkAdapter,
 	RuntimeDriverOptions,
 	SpawnedProcess,
-	VirtualFileSystem,
-	Permissions,
 } from "@secure-exec/core";
 import type {
 	StdioHook,

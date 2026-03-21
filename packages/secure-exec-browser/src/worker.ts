@@ -19,10 +19,12 @@ import {
 	exposeMutableRuntimeStateGlobal,
 } from "@secure-exec/core";
 import type {
-	CommandExecutor,
-	NetworkAdapter,
 	Permissions,
 	VirtualFileSystem,
+} from "@secure-exec/kernel";
+import type {
+	CommandExecutor,
+	NetworkAdapter,
 	ExecResult,
 	RunResult,
 	StdioChannel,

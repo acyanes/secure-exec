@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as fsSync from "node:fs";
 import path from "node:path";
 import { createEaccesError } from "@secure-exec/core/internal/shared/errors";
-import type { VirtualDirEntry, VirtualFileSystem, VirtualStat } from "@secure-exec/core";
+import type { VirtualDirEntry, VirtualFileSystem, VirtualStat } from "@secure-exec/kernel";
 
 /**
  * Options controlling which host node_modules are projected into the sandbox.
@@ -69,10 +69,15 @@ function createVirtualDirStat(): VirtualStat {
 		mode: VIRTUAL_DIR_MODE,
 		size: 4096,
 		isDirectory: true,
+		isSymbolicLink: false,
 		atimeMs: now,
 		mtimeMs: now,
 		ctimeMs: now,
 		birthtimeMs: now,
+		ino: 0,
+		nlink: 2,
+		uid: 0,
+		gid: 0,
 	};
 }
 
@@ -480,7 +485,7 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		return this.fallbackCreateDir(virtualPath);
 	}
 
-	async mkdir(pathValue: string): Promise<void> {
+	async mkdir(pathValue: string, _options?: { recursive?: boolean }): Promise<void> {
 		const virtualPath = normalizeOverlayPath(pathValue);
 		if (this.isReadOnlyProjectionPath(virtualPath)) {
 			throw createEaccesError("mkdir", virtualPath);
@@ -520,10 +525,15 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 				mode: info.mode,
 				size: info.size,
 				isDirectory: info.isDirectory(),
+				isSymbolicLink: false,
 				atimeMs: info.atimeMs,
 				mtimeMs: info.mtimeMs,
 				ctimeMs: info.ctimeMs,
 				birthtimeMs: info.birthtimeMs,
+				ino: info.ino,
+				nlink: info.nlink,
+				uid: info.uid,
+				gid: info.gid,
 			};
 		}
 		if (startsWithPath(virtualPath, SANDBOX_NODE_MODULES_ROOT)) {
@@ -592,6 +602,10 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 				mtimeMs: info.mtimeMs,
 				ctimeMs: info.ctimeMs,
 				birthtimeMs: info.birthtimeMs,
+				ino: info.ino,
+				nlink: info.nlink,
+				uid: info.uid,
+				gid: info.gid,
 			};
 		}
 		if (startsWithPath(virtualPath, SANDBOX_NODE_MODULES_ROOT)) {
@@ -645,5 +659,41 @@ export class ModuleAccessFileSystem implements VirtualFileSystem {
 		}
 		if (!this.baseFileSystem) throw createEnoentError("truncate", virtualPath);
 		return this.baseFileSystem.truncate(virtualPath, length);
+	}
+
+	async realpath(pathValue: string): Promise<string> {
+		const virtualPath = normalizeOverlayPath(pathValue);
+		if (this.isSyntheticPath(virtualPath)) {
+			return virtualPath;
+		}
+		const hostPath = await this.resolveOverlayHostPath(virtualPath, "realpath");
+		if (hostPath) {
+			return virtualPath;
+		}
+		if (startsWithPath(virtualPath, SANDBOX_NODE_MODULES_ROOT)) {
+			throw createEnoentError("realpath", virtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("realpath", virtualPath);
+		return this.baseFileSystem.realpath(virtualPath);
+	}
+
+	async pread(pathValue: string, offset: number, length: number): Promise<Uint8Array> {
+		const virtualPath = normalizeOverlayPath(pathValue);
+		const hostPath = await this.resolveOverlayHostPath(virtualPath, "open");
+		if (hostPath) {
+			const handle = await fs.open(hostPath, "r");
+			try {
+				const buf = new Uint8Array(length);
+				const { bytesRead } = await handle.read(buf, 0, length, offset);
+				return buf.slice(0, bytesRead);
+			} finally {
+				await handle.close();
+			}
+		}
+		if (startsWithPath(virtualPath, SANDBOX_NODE_MODULES_ROOT)) {
+			throw createEnoentError("open", virtualPath);
+		}
+		if (!this.baseFileSystem) throw createEnoentError("open", virtualPath);
+		return this.baseFileSystem.pread(virtualPath, offset, length);
 	}
 }

@@ -1,22 +1,28 @@
-// Core types.
+// Core types — VFS and permission types re-exported from @secure-exec/kernel (canonical source).
 export type {
-	ChildProcessAccessRequest,
-	CommandExecutor,
-	EnvAccessRequest,
+	VirtualFileSystem,
+	VirtualDirEntry,
+	VirtualStat,
+} from "@secure-exec/kernel";
+export type {
+	Permissions,
+	PermissionCheck,
+	PermissionDecision,
 	FsAccessRequest,
 	NetworkAccessRequest,
+	ChildProcessAccessRequest,
+	EnvAccessRequest,
+} from "@secure-exec/kernel";
+
+// Core-only types (not duplicated in kernel).
+export type {
+	CommandExecutor,
 	NetworkAdapter,
 	NetworkServerAddress,
 	NetworkServerListenOptions,
 	NetworkServerRequest,
 	NetworkServerResponse,
-	PermissionCheck,
-	PermissionDecision,
-	Permissions,
 	SpawnedProcess,
-	VirtualDirEntry,
-	VirtualFileSystem,
-	VirtualStat,
 } from "./types.js";
 
 // Runtime driver types.

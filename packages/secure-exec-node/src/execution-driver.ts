@@ -60,10 +60,12 @@ import {
 	resolveHttpServerResponse,
 } from "./bridge-handlers.js";
 import type {
+	Permissions,
+	VirtualFileSystem,
+} from "@secure-exec/kernel";
+import type {
 	CommandExecutor,
 	SpawnedProcess,
-	VirtualFileSystem,
-	Permissions,
 	ResolutionCache,
 } from "@secure-exec/core";
 import type {

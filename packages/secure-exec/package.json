@@ -46,6 +46,7 @@
   },
   "dependencies": {
     "@secure-exec/core": "workspace:*",
+    "@secure-exec/kernel": "workspace:*",
     "@secure-exec/node": "workspace:*"
   },
   "optionalDependencies": {

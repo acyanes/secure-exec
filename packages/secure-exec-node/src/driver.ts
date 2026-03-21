@@ -17,12 +17,14 @@ import type {
 	ProcessConfig,
 } from "@secure-exec/core/internal/shared/api-types";
 import type {
+	Permissions,
+	VirtualFileSystem,
+} from "@secure-exec/kernel";
+import type {
 	CommandExecutor,
 	NetworkAdapter,
 	NodeRuntimeDriverFactory,
-	Permissions,
 	SystemDriver,
-	VirtualFileSystem,
 } from "@secure-exec/core";
 import type { ModuleAccessOptions } from "./module-access.js";
 
@@ -74,7 +76,7 @@ export class NodeFileSystem implements VirtualFileSystem {
 		await fs.mkdir(path);
 	}
 
-	async mkdir(path: string): Promise<void> {
+	async mkdir(path: string, _options?: { recursive?: boolean }): Promise<void> {
 		await fs.mkdir(path, { recursive: true });
 	}
 
@@ -87,24 +89,21 @@ export class NodeFileSystem implements VirtualFileSystem {
 		}
 	}
 
-	async stat(path: string): Promise<{
-		mode: number;
-		size: number;
-		isDirectory: boolean;
-		atimeMs: number;
-		mtimeMs: number;
-		ctimeMs: number;
-		birthtimeMs: number;
-	}> {
+	async stat(path: string) {
 		const info = await fs.stat(path);
 		return {
 			mode: info.mode,
 			size: info.size,
 			isDirectory: info.isDirectory(),
+			isSymbolicLink: false,
 			atimeMs: info.atimeMs,
 			mtimeMs: info.mtimeMs,
 			ctimeMs: info.ctimeMs,
 			birthtimeMs: info.birthtimeMs,
+			ino: info.ino,
+			nlink: info.nlink,
+			uid: info.uid,
+			gid: info.gid,
 		};
 	}
 
@@ -128,16 +127,7 @@ export class NodeFileSystem implements VirtualFileSystem {
 		return fs.readlink(path);
 	}
 
-	async lstat(path: string): Promise<{
-		mode: number;
-		size: number;
-		isDirectory: boolean;
-		isSymbolicLink?: boolean;
-		atimeMs: number;
-		mtimeMs: number;
-		ctimeMs: number;
-		birthtimeMs: number;
-	}> {
+	async lstat(path: string) {
 		const info = await fs.lstat(path);
 		return {
 			mode: info.mode,
@@ -148,6 +138,10 @@ export class NodeFileSystem implements VirtualFileSystem {
 			mtimeMs: info.mtimeMs,
 			ctimeMs: info.ctimeMs,
 			birthtimeMs: info.birthtimeMs,
+			ino: info.ino,
+			nlink: info.nlink,
+			uid: info.uid,
+			gid: info.gid,
 		};
 	}
 
@@ -169,6 +163,21 @@ export class NodeFileSystem implements VirtualFileSystem {
 
 	async truncate(path: string, length: number): Promise<void> {
 		await fs.truncate(path, length);
+	}
+
+	async realpath(path: string): Promise<string> {
+		return fs.realpath(path);
+	}
+
+	async pread(path: string, offset: number, length: number): Promise<Uint8Array> {
+		const handle = await fs.open(path, "r");
+		try {
+			const buf = new Uint8Array(length);
+			const { bytesRead } = await handle.read(buf, 0, length, offset);
+			return buf.slice(0, bytesRead);
+		} finally {
+			await handle.close();
+		}
 	}
 }
 

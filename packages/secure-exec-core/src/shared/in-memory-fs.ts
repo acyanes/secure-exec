@@ -1,4 +1,4 @@
-import type { VirtualFileSystem, VirtualStat } from "../types.js";
+import type { VirtualFileSystem, VirtualStat } from "@secure-exec/kernel";
 
 const S_IFREG = 0o100000;
 const S_IFDIR = 0o040000;
@@ -113,7 +113,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		this.dirs.add(normalized);
 	}
 
-	async mkdir(path: string): Promise<void> {
+	async mkdir(path: string, _options?: { recursive?: boolean }): Promise<void> {
 		const parts = splitPath(path);
 		let current = "";
 		for (const part of parts) {
@@ -153,6 +153,10 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 				mtimeMs,
 				ctimeMs: now,
 				birthtimeMs: now,
+				ino: 0,
+				nlink: 1,
+				uid: owner?.uid ?? 0,
+				gid: owner?.gid ?? 0,
 			};
 		}
 		if (this.dirs.has(normalized)) {
@@ -165,6 +169,10 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 				mtimeMs,
 				ctimeMs: now,
 				birthtimeMs: now,
+				ino: 0,
+				nlink: 2,
+				uid: owner?.uid ?? 0,
+				gid: owner?.gid ?? 0,
 			};
 		}
 		throw new Error(`ENOENT: no such file or directory, stat '${normalized}'`);
@@ -321,6 +329,10 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 				mtimeMs: now,
 				ctimeMs: now,
 				birthtimeMs: now,
+				ino: 0,
+				nlink: 1,
+				uid: 0,
+				gid: 0,
 			};
 		}
 		return this.statEntry(normalized);
@@ -368,6 +380,20 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 			throw new Error(`ENOENT: no such file or directory, utimes '${normalized}'`);
 		}
 		this.timestamps.set(resolved, { atimeMs: atime * 1000, mtimeMs: mtime * 1000 });
+	}
+
+	async realpath(path: string): Promise<string> {
+		const normalized = normalizePath(path);
+		const resolved = this.resolveSymlink(normalized);
+		if (!this.files.has(resolved) && !this.dirs.has(resolved)) {
+			throw new Error(`ENOENT: no such file or directory, realpath '${normalized}'`);
+		}
+		return resolved;
+	}
+
+	async pread(path: string, offset: number, length: number): Promise<Uint8Array> {
+		const data = await this.readFile(path);
+		return data.slice(offset, offset + length);
 	}
 
 	async truncate(path: string, length: number): Promise<void> {

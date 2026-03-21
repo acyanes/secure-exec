@@ -8,10 +8,12 @@ import {
 	createEnosysError,
 } from "@secure-exec/core";
 import type {
-	NetworkAdapter,
 	Permissions,
-	SystemDriver,
 	VirtualFileSystem,
+} from "@secure-exec/kernel";
+import type {
+	NetworkAdapter,
+	SystemDriver,
 } from "@secure-exec/core";
 
 const S_IFREG = 0o100000;
@@ -147,7 +149,7 @@ export class OpfsFileSystem implements VirtualFileSystem {
 		await this.getDirHandle(normalized, true);
 	}
 
-	async mkdir(path: string): Promise<void> {
+	async mkdir(path: string, _options?: { recursive?: boolean }): Promise<void> {
 		const parts = splitPath(path);
 		let current = "";
 		for (const part of parts) {
@@ -170,15 +172,7 @@ export class OpfsFileSystem implements VirtualFileSystem {
 		}
 	}
 
-	async stat(path: string): Promise<{
-		mode: number;
-		size: number;
-		isDirectory: boolean;
-		atimeMs: number;
-		mtimeMs: number;
-		ctimeMs: number;
-		birthtimeMs: number;
-	}> {
+	async stat(path: string) {
 		try {
 			const handle = await this.getFileHandle(path);
 			const file = await handle.getFile();
@@ -186,10 +180,15 @@ export class OpfsFileSystem implements VirtualFileSystem {
 				mode: S_IFREG | 0o644,
 				size: file.size,
 				isDirectory: false,
+				isSymbolicLink: false,
 				atimeMs: file.lastModified,
 				mtimeMs: file.lastModified,
 				ctimeMs: file.lastModified,
 				birthtimeMs: file.lastModified,
+				ino: 0,
+				nlink: 1,
+				uid: 0,
+				gid: 0,
 			};
 		} catch {
 			const normalized = normalizePath(path);
@@ -200,10 +199,15 @@ export class OpfsFileSystem implements VirtualFileSystem {
 					mode: S_IFDIR | 0o755,
 					size: 4096,
 					isDirectory: true,
+					isSymbolicLink: false,
 					atimeMs: now,
 					mtimeMs: now,
 					ctimeMs: now,
 					birthtimeMs: now,
+					ino: 0,
+					nlink: 2,
+					uid: 0,
+					gid: 0,
 				};
 			} catch {
 				throw new Error(
@@ -244,16 +248,7 @@ export class OpfsFileSystem implements VirtualFileSystem {
 		throw createEnosysError("readlink");
 	}
 
-	async lstat(path: string): Promise<{
-		mode: number;
-		size: number;
-		isDirectory: boolean;
-		isSymbolicLink?: boolean;
-		atimeMs: number;
-		mtimeMs: number;
-		ctimeMs: number;
-		birthtimeMs: number;
-	}> {
+	async lstat(path: string) {
 		return this.stat(path);
 	}
 
@@ -278,6 +273,17 @@ export class OpfsFileSystem implements VirtualFileSystem {
 		const writable = await handle.createWritable({ keepExistingData: true });
 		await writable.truncate(length);
 		await writable.close();
+	}
+
+	async realpath(path: string): Promise<string> {
+		const normalized = normalizePath(path);
+		if (await this.exists(normalized)) return normalized;
+		throw new Error(`ENOENT: no such file or directory, realpath '${normalized}'`);
+	}
+
+	async pread(path: string, offset: number, length: number): Promise<Uint8Array> {
+		const data = await this.readFile(path);
+		return data.slice(offset, offset + length);
 	}
 }
 

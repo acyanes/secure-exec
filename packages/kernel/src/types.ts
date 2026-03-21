@@ -594,7 +594,7 @@ export interface FsAccessRequest {
 }
 
 export interface NetworkAccessRequest {
-	op: "fetch" | "http" | "dns" | "listen";
+	op: "fetch" | "http" | "dns" | "listen" | "connect";
 	url?: string;
 	method?: string;
 	hostname?: string;

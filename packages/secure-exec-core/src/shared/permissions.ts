@@ -8,12 +8,14 @@
 
 import { createEaccesError, createEnosysError } from "./errors.js";
 import type {
-	CommandExecutor,
 	EnvAccessRequest,
 	FsAccessRequest,
-	NetworkAdapter,
 	Permissions,
 	VirtualFileSystem,
+} from "@secure-exec/kernel";
+import type {
+	CommandExecutor,
+	NetworkAdapter,
 } from "../types.js";
 
 /** Normalize a filesystem path: collapse //, resolve . and .., strip trailing /. */
@@ -160,9 +162,9 @@ export function wrapFileSystem(
 			checkFs("createDir", path);
 			return fs.createDir(path);
 		},
-		mkdir: async (path) => {
+		mkdir: async (path, options?) => {
 			checkFs("mkdir", path);
-			return fs.mkdir(path);
+			return fs.mkdir(path, options);
 		},
 		exists: async (path) => {
 			checkFs("exists", path);
@@ -216,6 +218,14 @@ export function wrapFileSystem(
 		truncate: async (path, length) => {
 			checkFs("truncate", path);
 			return fs.truncate(path, length);
+		},
+		realpath: async (path) => {
+			checkFs("read", path);
+			return fs.realpath(path);
+		},
+		pread: async (path, offset, length) => {
+			checkFs("read", path);
+			return fs.pread(path, offset, length);
 		},
 	};
 }
@@ -351,6 +361,8 @@ export function createFsStub(): VirtualFileSystem {
 		chown: async (path) => stub("chown", path),
 		utimes: async (path) => stub("utimes", path),
 		truncate: async (path) => stub("open", path),
+		realpath: async (path) => stub("realpath", path),
+		pread: async (path) => stub("open", path),
 	};
 }
 

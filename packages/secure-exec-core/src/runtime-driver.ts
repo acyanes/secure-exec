@@ -10,10 +10,12 @@ import type {
 	TimingMitigation,
 } from "./shared/api-types.js";
 import type {
-	CommandExecutor,
-	NetworkAdapter,
 	Permissions,
 	VirtualFileSystem,
+} from "@secure-exec/kernel";
+import type {
+	CommandExecutor,
+	NetworkAdapter,
 } from "./types.js";
 
 export interface DriverRuntimeConfig {
