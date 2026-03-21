@@ -12,8 +12,10 @@
 - Cross-package relative imports (e.g., ../../../secure-exec-node/src/) cause rootDir violation in tsc — use @deprecated copy or package imports instead
 - VFS example-virtual-file-system-sqlite and example-virtual-file-system-s3 have pre-existing typecheck failures from US-001
 - HostNodeFileSystem (os-filesystem.ts) = kernel VFS with root-based sandboxing; NodeFileSystem (driver.ts) = SDK VFS with direct fs pass-through — don't confuse them
-- Kernel runtime driver (createNodeRuntime, NodeRuntimeDriver) canonical source is now secure-exec-node/src/kernel-runtime.ts
-- NodeWorkerAdapter canonical source is now secure-exec-node/src/worker-adapter.ts
+- Kernel runtime driver (createNodeRuntime, NodeRuntimeDriver) canonical source is now secure-exec-nodejs/src/kernel-runtime.ts
+- NodeWorkerAdapter canonical source is now secure-exec-nodejs/src/worker-adapter.ts
+- Package name is @secure-exec/nodejs (not @secure-exec/node), directory is packages/secure-exec-nodejs/
+- example-features has pre-existing typecheck failure (CommandExecutor removed in US-011)
 - bridge-registry-policy test "keeps canonical bridge key lists" has pre-existing failure (inventory out of sync)
 - Core's module-resolver.ts was renamed to builtin-modules.ts in node package (node already had its own module-resolver.ts)
 - When importing VFS types in core, use ./kernel/vfs.js (not ./types.js which no longer has VFS)
@@ -26,6 +28,9 @@
 - Python kernel runtime (createPythonRuntime, PythonRuntimeDriver) canonical source is now secure-exec-python/src/kernel-runtime.ts
 - When deleting test directories from old packages, also update tsconfig.json to remove test/**/*.ts from include
 - Browser os-filesystem (InMemoryFileSystem) and worker-adapter (BrowserWorkerAdapter) canonical source is now secure-exec-browser/src/
+- Browser imports use @secure-exec/browser (not secure-exec/browser — subpath removed in US-011)
+- createNodeRuntime is re-exported from secure-exec barrel (packages/secure-exec/src/index.ts) for kernel-first API convenience
+- Docs compatibility link slug is nodejs-compatibility (not node-compatability)
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -330,4 +335,74 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - NodeRuntime facade depends on createNetworkStub, filterEnv from core — these remain core exports
   - browser-runtime.ts was a convenience re-export used by both test-suite tests and browser runtime tests — update all references when deleting
   - playground imports from secure-exec/browser — needs @secure-exec/browser as direct dependency when subpath removed
+---
+
+## 2026-03-21 05:35 - US-012
+- Renamed directory packages/secure-exec-node → packages/secure-exec-nodejs
+- Renamed package from @secure-exec/node to @secure-exec/nodejs in package.json
+- Updated all internal import references (source files, package.json deps, comments, type tests)
+- Updated relative import paths in type test files (tests/types/*.test.ts use ../../../secure-exec-nodejs/)
+- Updated CI workflow (.github/workflows/pkg-pr-new.yaml) with new directory path
+- Updated contracts (.agent/contracts/node-runtime.md, compatibility-governance.md) with new package name and directory
+- Updated docs-internal/arch/overview.md and docs-internal/todo.md with new paths
+- Updated deprecated comments in core (esm-compiler.ts, module-resolver.ts, package-bundler.ts, bridge-contract.ts)
+- Added createKernel + Kernel + KernelInterface re-exports from @secure-exec/core to secure-exec barrel
+- pnpm-workspace.yaml unchanged — packages/* glob covers renamed directory
+- Typecheck passes: 28/31 (3 pre-existing failures: sqlite VFS, S3 VFS, features example)
+- Files changed:
+  - packages/secure-exec-nodejs/package.json (renamed from secure-exec-node, name → @secure-exec/nodejs)
+  - packages/secure-exec-nodejs/scripts/build-bridge.mjs (comment update)
+  - packages/secure-exec-nodejs/src/bridge-loader.ts (error message path update)
+  - packages/secure-exec/package.json (dep @secure-exec/node → @secure-exec/nodejs)
+  - packages/secure-exec/src/index.ts (imports from @secure-exec/nodejs, added createKernel re-export)
+  - packages/secure-exec/src/node/*.ts (all imports → @secure-exec/nodejs, directory comments updated)
+  - packages/secure-exec/src/polyfills.ts, bridge-loader.ts, esm-compiler.ts, module-resolver.ts, package-bundler.ts (comment updates)
+  - packages/secure-exec/src/shared/bridge-contract.ts (comment update)
+  - packages/secure-exec/tests/bridge-registry-policy.test.ts (readNodeSource path, comment)
+  - packages/secure-exec/tests/types/*.test.ts (6 files — relative import paths updated)
+  - packages/runtime/node/package.json, src/index.ts, src/driver.ts (dep + imports → @secure-exec/nodejs)
+  - packages/os/node/package.json, src/index.ts, src/filesystem.ts, src/worker.ts (dep + imports → @secure-exec/nodejs)
+  - packages/secure-exec-core/src/esm-compiler.ts, module-resolver.ts, package-bundler.ts, shared/bridge-contract.ts (deprecated comments)
+  - .agent/contracts/node-runtime.md, compatibility-governance.md (package name + directory paths)
+  - docs-internal/arch/overview.md (package name + directory path)
+  - docs-internal/todo.md (directory paths)
+  - .github/workflows/pkg-pr-new.yaml (publish path)
+  - pnpm-lock.yaml (regenerated)
+- **Learnings for future iterations:**
+  - pnpm-workspace.yaml's `packages/*` glob auto-covers directory renames — no workspace config change needed
+  - When renaming a package, search for BOTH the @scope/name pattern AND the directory name pattern (secure-exec-node/) — they appear in different contexts (imports vs relative paths, comments vs package.json)
+  - Type test files use relative paths (../../../secure-exec-nodejs/src/bridge/...) that need updating separately from package imports
+  - The `git mv` command stages new files but the deletions of old files need a separate `git add` of the old directory
+  - example-features typecheck failure (CommandExecutor removed) is pre-existing from US-011
+---
+
+## 2026-03-21 06:00 - US-013
+- Updated all docs, examples, and README for the new kernel-first API
+- **docs/quickstart.mdx**: Rewrote with kernel-first API (createKernel + mount + exec) as primary, NodeRuntime as "Alternative"
+- **docs/api-reference.mdx**: Added Kernel section (createKernel, Kernel interface, createNodeRuntime), updated package structure table to include @secure-exec/core, @secure-exec/nodejs, @secure-exec/python; marked SystemDriver as internal
+- **docs/runtimes/node.mdx**: Changed `@secure-exec/node` → `@secure-exec/nodejs`, added kernel-first section as recommended approach
+- **docs/runtimes/python.mdx**: Changed `@secure-exec/node` → `@secure-exec/nodejs`
+- **docs/system-drivers/browser.mdx**: Changed `secure-exec/browser` → `@secure-exec/browser` (subpath removed in US-011)
+- **docs/process-isolation.mdx**: Changed `@secure-exec/node` → `@secure-exec/nodejs` (3 occurrences)
+- **docs/sdk-overview.mdx**: Changed `secure-exec/browser` → `@secure-exec/browser`
+- **docs/features/filesystem.mdx**: Changed `secure-exec/browser` → `@secure-exec/browser`
+- **docs/features/networking.mdx**: Changed `secure-exec/browser` → `@secure-exec/browser`
+- **README.md**: Added kernel-first example section, kept AI SDK example, fixed `node-compatability` → `nodejs-compatibility` link typo
+- **examples/quickstart/**: Updated simple, filesystem, logging, fetch, run-command to kernel-first API; kept http-server-hono and typescript with NodeRuntime (need runtime.network/TypeScript tools)
+- **packages/secure-exec/src/index.ts**: Added `createNodeRuntime` re-export from @secure-exec/nodejs
+- Landing page Hero.tsx kept with NodeRuntime AI SDK example (best product demo for marketing)
+- Typecheck passes: 28/31 (3 pre-existing failures: sqlite VFS, S3 VFS, features example)
+- Files changed:
+  - docs/quickstart.mdx, api-reference.mdx, runtimes/node.mdx, runtimes/python.mdx
+  - docs/system-drivers/browser.mdx, process-isolation.mdx, sdk-overview.mdx
+  - docs/features/filesystem.mdx, docs/features/networking.mdx
+  - README.md
+  - examples/quickstart/src/simple.ts, filesystem.ts, logging.ts, fetch.ts, run-command.ts
+  - packages/secure-exec/src/index.ts
+- **Learnings for future iterations:**
+  - The kernel API (createKernel + mount + exec) and NodeRuntime API serve different use cases: kernel is for process-model execution (commands return stdout/stderr), NodeRuntime is for direct code execution (returns typed exports via module.exports)
+  - Examples using runtime.run<T>(), runtime.network.fetch(), or TypeScript tools integration are better kept with NodeRuntime — kernel API doesn't have typed return equivalents
+  - The `secure-exec/browser` and `secure-exec/python` subpaths were removed in US-011 — all browser imports should use `@secure-exec/browser` directly
+  - README compatibility link had a typo (`node-compatability`) — CLAUDE.md specifies the correct slug is `nodejs-compatibility`
+  - Landing page Hero code block has hand-crafted JSX syntax highlighting — updating it requires changing both codeRaw string and all <span> elements
 ---

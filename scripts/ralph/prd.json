@@ -181,7 +181,7 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 5 step 2. Pre-1.0 so rename is acceptable without npm deprecation."
     },
     {
@@ -199,7 +199,7 @@
         "Typecheck passes"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 5 step 3. Must keep README and landing page in sync per CLAUDE.md."
     },
     {
