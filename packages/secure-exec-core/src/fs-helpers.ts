@@ -2,7 +2,7 @@ import type {
 	VirtualDirEntry,
 	VirtualFileSystem,
 	VirtualStat,
-} from "./types.js";
+} from "./kernel/vfs.js";
 
 export type DirEntry = VirtualDirEntry;
 export type StatInfo = VirtualStat;

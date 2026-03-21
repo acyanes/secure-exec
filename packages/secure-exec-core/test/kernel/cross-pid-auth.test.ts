@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createTestKernel } from "./helpers.js";
-import type { Kernel, KernelInterface, ProcessContext, DriverProcess, RuntimeDriver } from "../src/types.js";
+import type { Kernel, KernelInterface, ProcessContext, DriverProcess, RuntimeDriver } from "../../src/kernel/types.js";
 
 /**
  * Cross-PID authorization: each driver's KernelInterface is scoped to PIDs

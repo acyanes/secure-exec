@@ -3,7 +3,7 @@
  * Provides a minimal in-memory VFS, MockRuntimeDriver, and createTestKernel.
  */
 
-import type { VirtualFileSystem, VirtualStat, VirtualDirEntry } from "../src/vfs.js";
+import type { VirtualFileSystem, VirtualStat, VirtualDirEntry } from "../../src/kernel/vfs.js";
 import type {
 	RuntimeDriver,
 	DriverProcess,
@@ -11,8 +11,8 @@ import type {
 	KernelInterface,
 	Kernel,
 	Permissions,
-} from "../src/types.js";
-import { createKernel } from "../src/kernel.js";
+} from "../../src/kernel/types.js";
+import { createKernel } from "../../src/kernel/kernel.js";
 
 const S_IFREG = 0o100000;
 const S_IFDIR = 0o040000;

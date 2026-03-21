@@ -77,7 +77,7 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Phase 3. Kernel has zero external dependencies so core gains no new deps."
     },
     {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { UserManager } from "../src/user.js";
+import { UserManager } from "../../src/kernel/user.js";
 
 describe("UserManager", () => {
 	describe("default values", () => {

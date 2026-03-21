@@ -1,4 +1,4 @@
-import type { VirtualFileSystem, VirtualStat } from "@secure-exec/kernel";
+import type { VirtualFileSystem, VirtualStat } from "../kernel/vfs.js";
 
 const S_IFREG = 0o100000;
 const S_IFDIR = 0o040000;

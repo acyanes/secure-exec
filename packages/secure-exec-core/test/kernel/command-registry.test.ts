@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { CommandRegistry } from "../src/command-registry.js";
-import type { RuntimeDriver, KernelInterface, ProcessContext, DriverProcess } from "../src/types.js";
+import { CommandRegistry } from "../../src/kernel/command-registry.js";
+import type { RuntimeDriver, KernelInterface, ProcessContext, DriverProcess } from "../../src/kernel/types.js";
 
 function createMockDriver(name: string, commands: string[]): RuntimeDriver {
 	return {

@@ -11,8 +11,10 @@ import type {
 } from "./shared/api-types.js";
 import type {
 	Permissions,
+} from "./kernel/types.js";
+import type {
 	VirtualFileSystem,
-} from "@secure-exec/kernel";
+} from "./kernel/vfs.js";
 import type {
 	CommandExecutor,
 	NetworkAdapter,

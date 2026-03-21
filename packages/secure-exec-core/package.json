@@ -60,6 +60,11 @@
       "import": "./dist/types.js",
       "default": "./dist/types.js"
     },
+    "./internal/kernel": {
+      "types": "./dist/kernel/index.d.ts",
+      "import": "./dist/kernel/index.js",
+      "default": "./dist/kernel/index.js"
+    },
     "./internal/generated/isolate-runtime": {
       "types": "./dist/generated/isolate-runtime.d.ts",
       "import": "./dist/generated/isolate-runtime.js",
@@ -86,13 +91,12 @@
     "check-types:isolate-runtime": "tsc -p tsconfig.isolate-runtime.json --noEmit",
     "check-types": "pnpm run check-types:src && pnpm run check-types:isolate-runtime",
     "build": "tsc",
-    "test": "echo 'no tests yet'"
-  },
-  "dependencies": {
-    "@secure-exec/kernel": "workspace:*"
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "@xterm/headless": "^6.0.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }

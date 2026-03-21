@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { ProcessTable } from "../src/process-table.js";
-import { WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG } from "../src/wstatus.js";
-import { WNOHANG, SIGCHLD, SIGALRM, SIGCONT, SIGSTOP, SIGTSTP } from "../src/types.js";
-import type { DriverProcess, ProcessContext } from "../src/types.js";
+import { ProcessTable } from "../../src/kernel/process-table.js";
+import { WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG } from "../../src/kernel/wstatus.js";
+import { WNOHANG, SIGCHLD, SIGALRM, SIGCONT, SIGSTOP, SIGTSTP } from "../../src/kernel/types.js";
+import type { DriverProcess, ProcessContext } from "../../src/kernel/types.js";
 
 function createMockDriverProcess(exitAfterMs?: number): DriverProcess {
 	let exitResolve: (code: number) => void;

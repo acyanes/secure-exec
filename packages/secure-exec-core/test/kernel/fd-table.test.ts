@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { ProcessFDTable, FDTableManager } from "../src/fd-table.js";
-import { O_RDONLY, O_WRONLY, O_CLOEXEC, FILETYPE_REGULAR_FILE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
+import { ProcessFDTable, FDTableManager } from "../../src/kernel/fd-table.js";
+import { O_RDONLY, O_WRONLY, O_CLOEXEC, FILETYPE_REGULAR_FILE, FILETYPE_CHARACTER_DEVICE } from "../../src/kernel/types.js";
 
 describe("ProcessFDTable", () => {
 	it("pre-allocates stdio FDs 0, 1, 2", () => {

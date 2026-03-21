@@ -4,7 +4,7 @@
  */
 
 import { Terminal } from "@xterm/headless";
-import type { Kernel, OpenShellOptions, ShellHandle } from "../src/types.js";
+import type { Kernel, OpenShellOptions, ShellHandle } from "../../src/kernel/types.js";
 
 /** Settlement window: resolve type() after this many ms of no new output. */
 const SETTLE_MS = 50;

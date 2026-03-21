@@ -14,8 +14,8 @@ import type {
 	DriverProcess,
 	ProcessContext,
 	KernelInterface,
-} from "../src/types.js";
-import { SIGINT, SIGWINCH } from "../src/types.js";
+} from "../../src/kernel/types.js";
+import { SIGINT, SIGWINCH } from "../../src/kernel/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock shell driver — reads lines from PTY slave via kernel FDs, interprets

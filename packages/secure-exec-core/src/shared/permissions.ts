@@ -11,8 +11,10 @@ import type {
 	EnvAccessRequest,
 	FsAccessRequest,
 	Permissions,
+} from "../kernel/types.js";
+import type {
 	VirtualFileSystem,
-} from "@secure-exec/kernel";
+} from "../kernel/vfs.js";
 import type {
 	CommandExecutor,
 	NetworkAdapter,

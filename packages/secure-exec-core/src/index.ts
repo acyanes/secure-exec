@@ -1,18 +1,74 @@
-// Core types — VFS and permission types re-exported from @secure-exec/kernel (canonical source).
+// Kernel — VFS, process table, FD table, device layer, pipes, PTY, command registry, permissions.
+export { createKernel } from "./kernel/kernel.js";
 export type {
-	VirtualFileSystem,
-	VirtualDirEntry,
-	VirtualStat,
-} from "@secure-exec/kernel";
-export type {
-	Permissions,
-	PermissionCheck,
+	Kernel,
+	KernelOptions,
+	KernelInterface,
+	ExecOptions as KernelExecOptions,
+	ExecResult as KernelExecResult,
+	SpawnOptions as KernelSpawnOptions,
+	ManagedProcess,
+	RuntimeDriver as KernelRuntimeDriver,
+	ProcessContext,
+	DriverProcess,
+	ProcessEntry,
+	ProcessInfo,
+	FDStat,
+	FileDescription,
+	FDEntry,
+	Pipe,
 	PermissionDecision,
+	PermissionCheck,
 	FsAccessRequest,
 	NetworkAccessRequest,
 	ChildProcessAccessRequest,
 	EnvAccessRequest,
-} from "@secure-exec/kernel";
+	KernelErrorCode,
+	Termios,
+	TermiosCC,
+	OpenShellOptions,
+	ShellHandle,
+	ConnectTerminalOptions,
+	Permissions,
+} from "./kernel/types.js";
+export { KernelError, defaultTermios } from "./kernel/types.js";
+export type {
+	VirtualFileSystem,
+	VirtualDirEntry,
+	VirtualStat,
+} from "./kernel/vfs.js";
+
+// Kernel components.
+export { FDTableManager, ProcessFDTable } from "./kernel/fd-table.js";
+export { ProcessTable } from "./kernel/process-table.js";
+export { createDeviceLayer } from "./kernel/device-layer.js";
+export { PipeManager } from "./kernel/pipe-manager.js";
+export { PtyManager } from "./kernel/pty.js";
+export type { LineDisciplineConfig } from "./kernel/pty.js";
+export { CommandRegistry } from "./kernel/command-registry.js";
+export { FileLockManager, LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB } from "./kernel/file-lock.js";
+export { UserManager } from "./kernel/user.js";
+export type { UserConfig } from "./kernel/user.js";
+
+// Kernel permission helpers (kernel-level, different from SDK-level shared/permissions).
+export { checkChildProcess } from "./kernel/permissions.js";
+
+// Kernel constants.
+export {
+	O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_CLOEXEC,
+	F_DUPFD, F_GETFD, F_SETFD, F_GETFL, F_DUPFD_CLOEXEC, FD_CLOEXEC,
+	SEEK_SET, SEEK_CUR, SEEK_END,
+	FILETYPE_UNKNOWN, FILETYPE_CHARACTER_DEVICE, FILETYPE_DIRECTORY,
+	FILETYPE_REGULAR_FILE, FILETYPE_SYMBOLIC_LINK, FILETYPE_PIPE,
+	SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGPIPE, SIGALRM, SIGTERM, SIGCHLD, SIGCONT, SIGSTOP, SIGTSTP, SIGWINCH,
+	WNOHANG,
+} from "./kernel/types.js";
+
+// POSIX wstatus encoding/decoding.
+export {
+	encodeExitStatus, encodeSignalStatus,
+	WIFEXITED, WEXITSTATUS, WIFSIGNALED, WTERMSIG,
+} from "./kernel/wstatus.js";
 
 // Core-only types (not duplicated in kernel).
 export type {

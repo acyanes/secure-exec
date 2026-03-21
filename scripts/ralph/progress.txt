@@ -1,9 +1,9 @@
 ## Codebase Patterns
-- Kernel VFS (packages/kernel/src/vfs.ts) is the superset VFS interface — includes realpath, pread, full VirtualStat (ino, nlink, uid, gid)
-- Core VFS (packages/secure-exec-core/src/types.ts) is deprecated — use kernel types
+- Kernel VFS canonical source is now packages/secure-exec-core/src/kernel/vfs.ts — includes realpath, pread, full VirtualStat (ino, nlink, uid, gid)
+- @secure-exec/kernel is a thin re-export from @secure-exec/core — canonical kernel source lives in core/src/kernel/
 - When creating VFS adapters/wrappers, always include realpath and pread pass-through
 - VirtualStat must always include ino, nlink, uid, gid fields (kernel canonical type)
-- Permission types (Permissions, FsAccessRequest, etc.) canonical source is @secure-exec/kernel
+- Permission types (Permissions, FsAccessRequest, etc.) canonical source is core/src/kernel/types.ts (re-exported through @secure-exec/kernel for backward compat)
 - NetworkAccessRequest.op includes "connect" (used by net socket bridge)
 - Core's RuntimeDriver (runtime-driver.ts) is NOT the same as kernel's RuntimeDriver (types.ts) — don't confuse them
 - PTY resource-exhaustion test "single large write (1MB+)" is a pre-existing flaky failure on main
@@ -13,7 +13,7 @@
 - VFS example-virtual-file-system-sqlite and example-virtual-file-system-s3 have pre-existing typecheck failures from US-001
 - bridge-registry-policy test "keeps canonical bridge key lists" has pre-existing failure (inventory out of sync)
 - Core's module-resolver.ts was renamed to builtin-modules.ts in node package (node already had its own module-resolver.ts)
-- When moving files from core to node that import VirtualFileSystem, change import from ./types.js to @secure-exec/kernel
+- When importing VFS types in core, use ./kernel/vfs.js (not ./types.js which no longer has VFS)
 - Build scripts that generate into another package use fileURLToPath + relative path from __dirname to find the target package root
 - bridge-loader.ts uses fileURLToPath(import.meta.url) to resolve its own package root (not createRequire to find @secure-exec/core)
 - turbo.json `build:generated` task chains build:bridge, build:polyfills, build:isolate-runtime — only exists in node package
@@ -116,4 +116,35 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - Build scripts that generate files into another package use import.meta.url + relative path to find the target package root — more reliable than require.resolve which needs dist/ to exist
   - bridge-loader.ts previously resolved @secure-exec/core via createRequire; now uses fileURLToPath(import.meta.url) for self-referencing
   - turbo v2 handles missing same-package task deps gracefully (skips them) — so build:generated in generic build task only triggers for packages that define it
+---
+
+## 2026-03-21 04:20 - US-005
+- Moved kernel source (14 files) from packages/kernel/src/ to packages/secure-exec-core/src/kernel/
+- Moved kernel tests (13 files) from packages/kernel/test/ to packages/secure-exec-core/test/kernel/
+- Updated core's index.ts to export createKernel, KernelError, kernel types, components, and constants from ./kernel/
+- Deleted deprecated VFS and permission type definitions from core/src/types.ts
+- Updated core internal imports (runtime-driver.ts, shared/permissions.ts, shared/in-memory-fs.ts, fs-helpers.ts, package-bundler.ts) from @secure-exec/kernel to relative ./kernel/ paths
+- Removed @secure-exec/kernel dependency from core's package.json
+- Added vitest + @xterm/headless to core's devDeps, added test script
+- Added ./internal/kernel subpath export to core's package.json
+- Made @secure-exec/kernel a thin re-export from @secure-exec/core (core barrel + core/internal/kernel for conflicting permission helpers)
+- Updated kernel's package.json to depend on @secure-exec/core, removed test script (tests moved)
+- Typecheck passes: 27/29 tasks (2 pre-existing VFS example failures)
+- Kernel tests pass: 390/391 (1 pre-existing flaky PTY test)
+- Files changed:
+  - packages/secure-exec-core/src/kernel/* (14 new files — moved from kernel)
+  - packages/secure-exec-core/test/kernel/* (13 new files — moved from kernel)
+  - packages/secure-exec-core/src/index.ts, types.ts, runtime-driver.ts, fs-helpers.ts, package-bundler.ts
+  - packages/secure-exec-core/src/shared/permissions.ts, shared/in-memory-fs.ts
+  - packages/secure-exec-core/package.json
+  - packages/kernel/src/index.ts (thin re-export), package.json, tsconfig.json
+  - packages/kernel/src/* (13 source files deleted)
+  - packages/kernel/test/* (13 test files deleted)
+  - pnpm-lock.yaml
+- **Learnings for future iterations:**
+  - Core has two sets of permission helpers: kernel-level (src/kernel/permissions.ts using KernelError) and SDK-level (src/shared/permissions.ts using createEaccesError) — same function names, different implementations
+  - Kernel types exported from core use aliased names to avoid collision: KernelExecOptions, KernelExecResult, KernelSpawnOptions, KernelRuntimeDriver (vs core's own ExecOptions, RuntimeDriver)
+  - When making a package a thin re-export, conflicting value exports must come from a subpath export (./internal/kernel) rather than the main barrel
+  - Core's tsconfig rootDir: ./src means tests in test/ need vitest (which resolves .ts naturally) rather than being type-checked by the build tsc — test type-checking would need a separate tsconfig
+  - fs-helpers.ts and package-bundler.ts in core also imported VFS types from ./types.js — easy to miss when deleting deprecated types
 ---

@@ -5,11 +5,11 @@ import {
 	createTestKernel,
 	type MockCommandConfig,
 } from "./helpers.js";
-import type { Kernel, Permissions, ProcessContext, RuntimeDriver, DriverProcess, KernelInterface } from "../src/types.js";
-import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
-import { createKernel } from "../src/kernel.js";
-import { filterEnv, wrapFileSystem } from "../src/permissions.js";
-import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../src/pty.js";
+import type { Kernel, Permissions, ProcessContext, RuntimeDriver, DriverProcess, KernelInterface } from "../../src/kernel/types.js";
+import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../../src/kernel/types.js";
+import { createKernel } from "../../src/kernel/kernel.js";
+import { filterEnv, wrapFileSystem } from "../../src/kernel/permissions.js";
+import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../../src/kernel/pty.js";
 
 describe("kernel + MockRuntimeDriver integration", () => {
 	let kernel: Kernel;

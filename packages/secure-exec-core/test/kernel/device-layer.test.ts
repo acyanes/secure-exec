@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDeviceLayer } from "../src/device-layer.js";
+import { createDeviceLayer } from "../../src/kernel/device-layer.js";
 import { TestFileSystem } from "./helpers.js";
 
 function createTestVfs() {

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { FileLockManager, LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB } from "../src/file-lock.js";
+import { FileLockManager, LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB } from "../../src/kernel/file-lock.js";
 import { createTestKernel, MockRuntimeDriver } from "./helpers.js";
-import type { Kernel, KernelInterface } from "../src/types.js";
+import type { Kernel, KernelInterface } from "../../src/kernel/types.js";
 
 describe("FileLockManager", () => {
 	it("exclusive lock blocks second exclusive lock", () => {

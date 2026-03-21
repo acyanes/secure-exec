@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PipeManager } from "../src/pipe-manager.js";
+import { PipeManager } from "../../src/kernel/pipe-manager.js";
 
 describe("PipeManager", () => {
 	it("creates a pipe with read and write ends", () => {
