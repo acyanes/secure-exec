@@ -219,8 +219,11 @@ function createRedirectingNetworkAdapter(getMockUrl: () => string): NetworkAdapt
  * Build sandbox code that loads Pi's main module in interactive mode.
  * Uses PI_MAIN instead of PI_CLI to avoid undici import issues in-VM.
  * API redirect is handled by the networkAdapter at the bridge level.
- * Uses ESM format (export {}) so V8 uses execute_module() which properly
- * handles top-level await — CJS execute_script() doesn't await promises.
+ *
+ * Uses ESM with dynamic import() but does NOT await main() — main()
+ * starts the TUI loop which keeps the V8 event loop alive via pending
+ * async bridge promises (_stdinRead, _scheduleTimer). This matches
+ * how Pi's cli.js works: it calls main() without await.
  */
 function buildPiInteractiveCode(): string {
   const flags = [
@@ -236,10 +239,16 @@ function buildPiInteractiveCode(): string {
 // Override process.argv for Pi CLI
 process.argv = ['node', 'pi', ${flags.map((f) => JSON.stringify(f)).join(', ')}];
 
-// Import main.js and call main() — in interactive mode main() starts
-// the TUI and stays running until the user exits
+// Keepalive timer: prevents the V8 event loop from exiting before main()
+// makes its first async bridge call. The TLA promise is V8-native (not
+// bridge-tracked), so without a bridge-level pending promise, the sidecar's
+// run_event_loop() exits immediately after execute_module() returns.
+const _keepalive = setInterval(() => {}, 60000);
+
+// Import main.js and start main() — in interactive mode main() starts
+// the TUI and stays running until the user exits.
 const { main } = await import(${JSON.stringify(PI_MAIN)});
-await main(process.argv.slice(2));
+main(process.argv.slice(2)).finally(() => clearInterval(_keepalive));
 `;
 }
 
