@@ -81,6 +81,11 @@
 - SSRF check in createDefaultNetworkAdapter blocks 127.0.0.1 — test network adapters need directFetch bypass for mock servers
 - crypto polyfill (node-stdlib-browser) lacks randomUUID — augment with bridge _cryptoRandomUUID
 - process.stdout.write(data, callback) callback must be invoked — Pi's flush Promise depends on it
+- V8_POLYFILLS TextDecoder.decode() must handle Uint8Array subarrays — `new Uint8Array(buf.buffer)` ignores byteOffset/byteLength; use `buf instanceof Uint8Array ? ... : new Uint8Array(buf.buffer || buf)`
+- Bridge fetch must normalize Headers instances to plain objects before JSON.stringify — SDK passes Headers, JSON.stringify(Headers) = {}
+- Response body needs Symbol.asyncIterator with Promise.resolve-based reader for SDK SSE parsing — async generators create extra microtask overhead
+- V8 event loop needs post-loop microtask drain (session.rs) for async generator chains across loaded ESM modules
+- SDK uses .mjs files in V8 sandbox — patches to .js files won't be loaded; the _loadFile handler traces must check .mjs paths
 
 # Ralph Progress Log
 Started: Sat Mar 21 02:49:43 AM PDT 2026
@@ -937,4 +942,27 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - process.stdout.write("", callback) — bridge didn't invoke callback, Pi's flush Promise hangs
   - SSRF check in createDefaultNetworkAdapter blocks 127.0.0.1 — test needs directFetch bypass
   - Anthropic SDK uses ANTHROPIC_BASE_URL env var for API endpoint override
+---
+
+## 2026-03-22 00:00 - US-027 (PASSING)
+- Fixed 4 bridge compatibility issues that prevented Pi from running in-VM:
+  1. TextDecoder subarray bug: V8_POLYFILLS TextDecoder.decode() used `new Uint8Array(buf.buffer)` which ignores byteOffset/byteLength of typed array views — SDK's LineDecoder returned corrupted SSE lines
+  2. Fetch Headers serialization: SDK passes `Headers` instances to fetch, `JSON.stringify(Headers)` produces `{}` — normalize to plain Record via `.entries()`
+  3. Response body async iterator: added `Symbol.asyncIterator` with explicit `Promise.resolve()` (not async generator) for SDK's ReadableStreamToAsyncIterable
+  4. V8 event loop microtask drain: added post-event-loop checkpoint loop in session.rs for nested async generator yield chains across loaded ESM modules
+- Pi boots, loads Anthropic SDK, processes SSE streaming response, outputs LLM response
+- Tests use output-settle detection (500ms no new output → kill process) because process.exit() in TLA doesn't cleanly terminate V8 session
+- Bash tool test skipped when WASM binaries unavailable
+- Files changed:
+  - native/v8-runtime/src/session.rs (microtask drain loop after event loop)
+  - packages/nodejs/src/execution-driver.ts (TextDecoder subarray fix)
+  - packages/nodejs/src/bridge/network.ts (Headers normalization, body async iterator)
+  - packages/nodejs/src/bridge/polyfills.ts (TextDecoder subarray fix for polyfill)
+  - packages/secure-exec/tests/cli-tools/pi-headless.test.ts (output-settle spawn helper, bash skip)
+- **Learnings for future iterations:**
+  - V8_POLYFILLS TextDecoder runs BEFORE bridge IIFE — fixes must go in execution-driver.ts, not polyfills.ts
+  - SDK uses `.mjs` files (ESM), not `.js` (CJS) — module tracing must check the right variant
+  - `text-encoding-utf-8` polyfill has the same subarray bug — both polyfills need fixing
+  - Async generator `yield` across V8-loaded ESM modules needs extra microtask checkpoints after event loop
+  - process.exit() inside TLA doesn't cleanly terminate the V8 session — test needs output-settle detection
 ---
