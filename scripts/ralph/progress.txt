@@ -78,6 +78,9 @@
 - bundlePolyfill() returns an IIFE — _loadFile must NOT re-wrap (double-wrapping discards inner result)
 - CJS-to-ESM wrapper must use `let exports` not `const` — CJS modules (ajv) reassign exports
 - Non-TTY stdin must emit "end" on resume when empty — without it, apps hang at readPipedStdin()
+- process.kill(self, signal) must dispatch signal handlers for non-fatal signals (SIGWINCH/SIGCHLD/SIGURG/SIGCONT) instead of exiting — Pi TUI sends SIGWINCH on startup
+- Any async bridge handler that waits for external data (like _stdinRead) MUST be in ASYNC_BRIDGE_FNS in session.rs — dispatch via _loadPolyfill.applySyncPromise blocks the V8 thread
+- Pi cli.js imports undici which fails in-VM — use PI_MAIN (dist/main.js) directly and call main() instead
 - SSRF check in createDefaultNetworkAdapter blocks 127.0.0.1 — test network adapters need directFetch bypass for mock servers
 - crypto polyfill (node-stdlib-browser) lacks randomUUID — augment with bridge _cryptoRandomUUID
 - process.stdout.write(data, callback) callback must be invoked — Pi's flush Promise depends on it
@@ -965,4 +968,20 @@ Started: Sat Mar 21 02:49:43 AM PDT 2026
   - `text-encoding-utf-8` polyfill has the same subarray bug — both polyfills need fixing
   - Async generator `yield` across V8-loaded ESM modules needs extra microtask checkpoints after event loop
   - process.exit() inside TLA doesn't cleanly terminate the V8 session — test needs output-settle detection
+---
+
+## 2026-03-22 - US-028 (in progress)
+- Fixed process.kill(self, signal) to dispatch signal handlers for non-fatal signals (SIGWINCH, SIGCHLD, etc.) instead of always exiting
+- Added _stdinRead to ASYNC_BRIDGE_FNS in native/v8-runtime/src/session.rs — prevents V8 event loop deadlock when process.stdin.resume() starts the readLoop via _loadPolyfill.applySyncPromise dispatch
+- Rewrote pi-interactive.test.ts: removed probes, sandboxSkip, inline fetch patching; uses networkAdapter + ESM mode + PI_MAIN
+- Tests still fail: V8 sidecar crashes (IPC connection closed, exit code 1) during Pi TUI framework initialization — needs further sandbox fixes
+- Files changed: native/v8-runtime/src/session.rs, packages/nodejs/src/bridge/process.ts, packages/secure-exec/tests/cli-tools/pi-interactive.test.ts
+- **Learnings for future iterations:**
+  - process.kill(self, SIGWINCH) was exiting instead of dispatching — Pi TUI (pi-tui package) sends SIGWINCH on startup to refresh terminal dimensions
+  - _stdinRead dispatch through _loadPolyfill.applySyncPromise blocks the V8 thread — any async bridge handler that waits for external data MUST be in ASYNC_BRIDGE_FNS
+  - Pi cli.js imports undici which fails in-VM — use PI_MAIN (main.js) directly and call main() instead
+  - V8 execute_script() CJS mode doesn't await promises — use ESM (export {}) for interactive processes that need TLA
+  - Pi's ProcessTerminal constructor calls process.kill(process.pid, "SIGWINCH") which is line 38 of pi-tui/dist/terminal.js
+  - The V8 sidecar crash during Pi TUI init is NOT a JS-level error (process.exit interceptor doesn't fire) — it's a native Rust sidecar crash
+  - After fixing _stdinRead async, cargo build --release takes ~3s (incremental), then must copy binary to node_modules/.pnpm/@secure-exec+v8-linux-x64-gnu@0.1.1-rc.3/node_modules/@secure-exec/v8-linux-x64-gnu/secure-exec-v8
 ---
