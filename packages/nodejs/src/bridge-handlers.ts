@@ -1802,6 +1802,10 @@ export function resolveHttpServerResponse(serverId: number, responseJson: string
 export interface PtyBridgeDeps {
 	onPtySetRawMode?: (mode: boolean) => void;
 	stdinIsTTY?: boolean;
+	/** Set by _stdinRead handler — call to deliver data to the pending read */
+	onStdinData?: (data: string) => void;
+	/** Set by _stdinRead handler — call to signal stdin EOF */
+	onStdinEnd?: () => void;
 }
 
 /** Build PTY bridge handlers. */
@@ -1812,6 +1816,41 @@ export function buildPtyBridgeHandlers(deps: PtyBridgeDeps): BridgeHandlers {
 	if (deps.stdinIsTTY && deps.onPtySetRawMode) {
 		handlers[K.ptySetRawMode] = (mode: unknown) => {
 			deps.onPtySetRawMode!(Boolean(mode));
+		};
+	}
+
+	// Async bridge handler for streaming stdin reads
+	if (deps.stdinIsTTY) {
+		const stdinQueue: (string | null)[] = [];
+		let stdinReadResolve: ((data: string | null) => void) | null = null;
+
+		handlers[K.stdinRead] = (): Promise<string | null> => {
+			if (stdinQueue.length > 0) {
+				return Promise.resolve(stdinQueue.shift()!);
+			}
+			return new Promise<string | null>((resolve) => {
+				stdinReadResolve = resolve;
+			});
+		};
+
+		deps.onStdinData = (data: string) => {
+			if (stdinReadResolve) {
+				const resolve = stdinReadResolve;
+				stdinReadResolve = null;
+				resolve(data);
+			} else {
+				stdinQueue.push(data);
+			}
+		};
+
+		deps.onStdinEnd = () => {
+			if (stdinReadResolve) {
+				const resolve = stdinReadResolve;
+				stdinReadResolve = null;
+				resolve(null);
+			} else {
+				stdinQueue.push(null);
+			}
 		};
 	}
 

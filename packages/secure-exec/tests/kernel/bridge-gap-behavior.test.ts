@@ -241,3 +241,162 @@ describe('native ESM execution via V8 module system', () => {
     expect(stdout.join('')).toContain('DYNAMIC_IMPORT_OK');
   }, 15_000);
 });
+
+// ---------------------------------------------------------------------------
+// Streaming stdin via PTY
+// ---------------------------------------------------------------------------
+
+describe('bridge gap: streaming stdin via PTY', () => {
+  let ctx: { kernel: Kernel; vfs: InMemoryFileSystem; dispose: () => Promise<void> };
+
+  afterEach(async () => {
+    await ctx?.dispose();
+  });
+
+  it('process.stdin data events fire when PTY master writes data', async () => {
+    ctx = await createNodeKernel();
+
+    const shell = ctx.kernel.openShell({
+      command: 'node',
+      args: ['-e', `
+        process.stdin.setRawMode(true);
+        const received = [];
+        process.stdin.on('data', (chunk) => {
+          received.push(chunk);
+          // After receiving some data, output it and exit
+          if (received.join('').includes('HELLO')) {
+            console.log('GOT:' + received.join(''));
+            process.exit(0);
+          }
+        });
+        process.stdin.resume();
+      `],
+    });
+
+    const chunks: Uint8Array[] = [];
+    shell.onData = (data) => chunks.push(data);
+
+    // Wait for process to start, then write stdin data
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const encoder = new TextEncoder();
+    shell.write(encoder.encode('HELLO'));
+
+    const exitCode = await Promise.race([
+      shell.wait(),
+      new Promise<number>((_, reject) =>
+        setTimeout(() => reject(new Error('PTY stdin test timed out')), 15_000),
+      ),
+    ]);
+
+    const output = new TextDecoder().decode(Buffer.concat(chunks));
+    expect(output).toContain('GOT:HELLO');
+    expect(exitCode).toBe(0);
+  }, 20_000);
+
+  it('stdin data arrives in small chunks, not batched', async () => {
+    ctx = await createNodeKernel();
+
+    const shell = ctx.kernel.openShell({
+      command: 'node',
+      args: ['-e', `
+        process.stdin.setRawMode(true);
+        let chunkCount = 0;
+        process.stdin.on('data', (chunk) => {
+          chunkCount++;
+          if (chunkCount >= 3) {
+            console.log('CHUNKS:' + chunkCount);
+            process.exit(0);
+          }
+        });
+        process.stdin.resume();
+      `],
+    });
+
+    const chunks: Uint8Array[] = [];
+    shell.onData = (data) => chunks.push(data);
+
+    // Wait for process to start
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Write 3 separate chunks with delays between them
+    const encoder = new TextEncoder();
+    shell.write(encoder.encode('a'));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    shell.write(encoder.encode('b'));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    shell.write(encoder.encode('c'));
+
+    const exitCode = await Promise.race([
+      shell.wait(),
+      new Promise<number>((_, reject) =>
+        setTimeout(() => reject(new Error('PTY stdin chunk test timed out')), 15_000),
+      ),
+    ]);
+
+    const output = new TextDecoder().decode(Buffer.concat(chunks));
+    expect(output).toContain('CHUNKS:3');
+    expect(exitCode).toBe(0);
+  }, 20_000);
+
+  it('process.stdin.resume() enables event delivery and data accumulates', async () => {
+    ctx = await createNodeKernel();
+
+    const shell = ctx.kernel.openShell({
+      command: 'node',
+      args: ['-e', `
+        process.stdin.setRawMode(true);
+        let received = '';
+        process.stdin.on('data', (chunk) => {
+          received += chunk;
+          // After receiving enough data, output and exit
+          if (received.length >= 2) {
+            console.log('RECEIVED:' + received);
+            process.exit(0);
+          }
+        });
+        process.stdin.resume();
+      `],
+    });
+
+    const chunks: Uint8Array[] = [];
+    shell.onData = (data) => chunks.push(data);
+
+    // Wait for process to start and resume stdin
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const encoder = new TextEncoder();
+    shell.write(encoder.encode('XY'));
+
+    const exitCode = await Promise.race([
+      shell.wait(),
+      new Promise<number>((_, reject) =>
+        setTimeout(() => reject(new Error('PTY stdin test timed out')), 15_000),
+      ),
+    ]);
+
+    const output = new TextDecoder().decode(Buffer.concat(chunks));
+    expect(output).toContain('RECEIVED:XY');
+    expect(exitCode).toBe(0);
+  }, 20_000);
+
+  it('non-PTY stdin behavior is unchanged with batched delivery', async () => {
+    ctx = await createNodeKernel();
+
+    // Non-PTY: stdin is delivered as a batch via processConfig
+    const stdout: string[] = [];
+    const proc = ctx.kernel.spawn('node', ['-e', `
+      let data = '';
+      process.stdin.on('data', (chunk) => { data += chunk; });
+      process.stdin.on('end', () => { console.log('BATCH:' + data); });
+    `], {
+      onStdout: (d) => stdout.push(new TextDecoder().decode(d)),
+    });
+
+    // Write stdin data and close
+    proc.writeStdin(new TextEncoder().encode('batch-data'));
+    proc.closeStdin();
+
+    const exitCode = await proc.wait();
+    expect(exitCode).toBe(0);
+    expect(stdout.join('')).toContain('BATCH:batch-data');
+  }, 15_000);
+});

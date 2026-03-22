@@ -56,6 +56,7 @@ import {
 	buildUpgradeSocketBridgeHandlers,
 	buildModuleResolutionBridgeHandlers,
 	buildPtyBridgeHandlers,
+	type PtyBridgeDeps,
 	createProcessConfigForExecution,
 	resolveHttpServerResponse,
 } from "./bridge-handlers.js";
@@ -297,6 +298,10 @@ export class NodeExecutionDriver implements RuntimeDriver {
 	private flattenedBindings: FlattenedBinding[] | null = null;
 	// Unwrapped filesystem for path translation (toHostPath/toSandboxPath)
 	private rawFilesystem: VirtualFileSystem | undefined;
+	/** Callback invoked when V8 session is ready — used for streaming stdin */
+	onStreamReady?: (sendStreamEvent: (eventType: string, payload: Uint8Array) => void) => void;
+	/** Callback invoked when PTY stdin bridge handler is ready — delivers data to pending _stdinRead */
+	onStdinReady?: (deliver: (data: string) => void, end: () => void) => void;
 
 	constructor(options: NodeExecutionDriverOptions) {
 		this.memoryLimit = options.memoryLimit ?? 128;
@@ -446,6 +451,14 @@ export class NodeExecutionDriver implements RuntimeDriver {
 				}
 			};
 
+			// Notify kernel-runtime that streaming is ready (for PTY stdin)
+			this.onStreamReady?.(sendStreamEvent);
+
+			// Build PTY bridge handlers ONCE — shared between dispatch and main handlers
+			const ptyDeps: PtyBridgeDeps = { onPtySetRawMode: s.onPtySetRawMode, stdinIsTTY: s.processConfig.stdinIsTTY };
+			const ptyHandlers = buildPtyBridgeHandlers(ptyDeps);
+			if (ptyDeps.onStdinData) this.onStdinReady?.(ptyDeps.onStdinData, ptyDeps.onStdinEnd!);
+
 			const netSocketResult = buildNetworkSocketBridgeHandlers({
 				dispatch: (socketId, event, data) => {
 					const payload = JSON.stringify({ socketId, event, data });
@@ -488,10 +501,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 							return typeof fs.toSandboxPath === "function" ? fs.toSandboxPath(p) : p;
 						},
 					}),
-					...buildPtyBridgeHandlers({
-						onPtySetRawMode: s.onPtySetRawMode,
-						stdinIsTTY: s.processConfig.stdinIsTTY,
-					}),
+					...ptyHandlers,
 					// Custom bindings dispatched through _loadPolyfill
 					...(this.flattenedBindings ? Object.fromEntries(
 						this.flattenedBindings.map(b => [b.key, b.handler])
@@ -543,10 +553,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 						return typeof rfs?.toSandboxPath === "function" ? rfs.toSandboxPath(p) : p;
 					},
 				}),
-				...buildPtyBridgeHandlers({
-					onPtySetRawMode: s.onPtySetRawMode,
-					stdinIsTTY: s.processConfig.stdinIsTTY,
-				}),
+				...ptyHandlers,
 			};
 
 			// Merge custom bindings into bridge handlers

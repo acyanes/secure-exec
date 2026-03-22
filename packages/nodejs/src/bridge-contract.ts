@@ -78,6 +78,7 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	resolveModuleSync: "_resolveModuleSync",
 	loadFileSync: "_loadFileSync",
 	ptySetRawMode: "_ptySetRawMode",
+	stdinRead: "_stdinRead",
 	processConfig: "_processConfig",
 	osConfig: "_osConfig",
 	log: "_log",

@@ -12,6 +12,7 @@ import { URL as WhatwgURL, URLSearchParams as WhatwgURLSearchParams } from "what
 // Use buffer package for spec-compliant Buffer implementation
 import { Buffer as BufferPolyfill } from "buffer";
 import type {
+	BridgeApplyRef,
 	CryptoRandomFillBridgeRef,
 	CryptoRandomUuidBridgeRef,
 	FsFacadeBridge,
@@ -56,6 +57,8 @@ declare const _log: ProcessLogBridgeRef;
 declare const _error: ProcessErrorBridgeRef;
 // Timer reference for actual delays using host's event loop
 declare const _scheduleTimer: ScheduleTimerBridgeRef | undefined;
+// Stdin streaming read — async bridge handler returning next chunk (null = EOF)
+declare const _stdinRead: BridgeApplyRef<[], string | null> | undefined;
 declare const _cryptoRandomFill: CryptoRandomFillBridgeRef | undefined;
 declare const _cryptoRandomUUID: CryptoRandomUuidBridgeRef | undefined;
 // Filesystem bridge for chdir validation
@@ -361,6 +364,9 @@ const _stderr: StdioWriteStream = {
   rows: 24,
 };
 
+// Flag to prevent duplicate stdin read loops
+let _stdinKeepaliveActive = false;
+
 // Stdin stream with data support
 // These are exposed as globals so they can be set after bridge initialization
 type StdinListener = (data?: unknown) => void;
@@ -417,6 +423,47 @@ function _emitStdinData(): void {
     }
   }
 }
+
+/**
+ * Global dispatch handler for streaming stdin events from the host.
+ * Called by the V8 sidecar when it receives a "stdin" stream event.
+ * Pushes data into the stdin stream in real-time for PTY-backed processes.
+ */
+const stdinDispatch = (
+  _eventType: string,
+  payload: string | null,
+): void => {
+  if (payload === null || payload === undefined) {
+    // stdin end signal
+    if (!getStdinEnded()) {
+      setStdinEnded(true);
+      const endListeners = [...(_stdinListeners["end"] || []), ...(_stdinOnceListeners["end"] || [])];
+      _stdinOnceListeners["end"] = [];
+      for (const listener of endListeners) {
+        listener();
+      }
+      const closeListeners = [...(_stdinListeners["close"] || []), ...(_stdinOnceListeners["close"] || [])];
+      _stdinOnceListeners["close"] = [];
+      for (const listener of closeListeners) {
+        listener();
+      }
+    }
+    return;
+  }
+
+  // Streaming data chunk — emit 'data' event if listeners are registered
+  const dataListeners = [...(_stdinListeners["data"] || []), ...(_stdinOnceListeners["data"] || [])];
+  _stdinOnceListeners["data"] = [];
+  if (dataListeners.length > 0) {
+    for (const listener of dataListeners) {
+      listener(payload);
+    }
+  } else {
+    // Buffer if no listeners yet — append to _stdinData for later read()
+    setStdinDataValue(getStdinData() + payload);
+  }
+};
+exposeCustomGlobal("_stdinDispatch", stdinDispatch);
 
 // Stdin stream shape
 interface StdinStream {
@@ -500,6 +547,26 @@ const _stdin: StdinStream = {
     this.paused = false;
     setStdinFlowMode(true);
     _emitStdinData();
+    // Start streaming stdin read loop via _stdinRead bridge handler
+    if (_getStdinIsTTY() && !_stdinKeepaliveActive && typeof _stdinRead !== "undefined") {
+      _stdinKeepaliveActive = true;
+      (async function readLoop() {
+        try {
+          while (true) {
+            const chunk = await _stdinRead!.apply(undefined, [], { result: { promise: true } });
+            if (chunk === null || chunk === undefined) {
+              // EOF — dispatch end signal
+              stdinDispatch("stdin", null);
+              break;
+            }
+            stdinDispatch("stdin", chunk);
+          }
+        } catch {
+          // Bridge error — session closing
+        }
+        _stdinKeepaliveActive = false;
+      })();
+    }
     return this;
   },
 
