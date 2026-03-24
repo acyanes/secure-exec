@@ -29,6 +29,20 @@
 - **no suite-specific VFS special-casing** — the test runner must not branch on suite name to inject different filesystem state; if a test needs files to exist, either the kernel should provide them or the test should be excluded
 - **categorize exclusions honestly** — if a failure is fixable with a patch or build flag, it's `implementation-gap`, not `wasm-limitation`; reserve `wasm-limitation` for things genuinely impossible in wasm32-wasip1 (no 80-bit long double, no fork, no mmap)
 
+### Node.js Conformance Test Integrity
+
+- conformance tests live in `packages/secure-exec/tests/node-conformance/` — they are vendored upstream Node.js v22.14.0 test/parallel/ tests run through the sandbox
+- `docs-internal/nodejs-compat-roadmap.md` tracks every non-passing test with its fix category and resolution
+- when implementing bridge/polyfill features where both sides go through our code (e.g., loopback HTTP server + client), prevent overfitting:
+  - **wire-level snapshot tests**: capture raw protocol bytes and compare against known-good captures from real Node.js
+  - **project-matrix cross-validation**: add a project-matrix fixture (`tests/projects/`) using a real npm package that exercises the feature — the matrix compares sandbox output to host Node.js
+  - **real-server control tests**: for network features, maintain tests that hit real external endpoints (not loopback) to validate the client independently of the server
+  - **known-test-vector validation**: for crypto, validate against NIST/RFC test vectors — not just round-trip verification
+  - **error object snapshot testing**: for ERR_* codes, snapshot-test full error objects (code, message, constructor) against Node.js — not just check `.code` exists
+  - **host-side assertion verification**: periodically run assert-heavy conformance tests through host Node.js to verify the assert polyfill isn't masking failures
+- never inflate conformance numbers — if a test self-skips (exits 0 without testing anything), mark it `vacuous-skip` in expectations.json, not as a real pass
+- every entry in `expectations.json` must have a specific, verifiable reason — no vague "fails in sandbox" reasons
+
 ## Tooling
 
 - use pnpm, vitest, and tsc for type checks
@@ -92,6 +106,26 @@
 
 - read `docs-internal/arch/overview.md` for the component map (NodeRuntime, RuntimeDriver, NodeDriver, NodeExecutionDriver, ModuleAccessFileSystem, Permissions)
 - keep it up to date when adding, removing, or significantly changing components
+
+## Virtual Kernel Architecture
+
+- **all sandbox I/O routes through the virtual kernel** — user code never touches the host OS directly
+- the kernel provides: VFS (virtual file system), process table (spawn/signals/exit), network stack (TCP/HTTP/DNS/UDP), and a deny-by-default permissions engine
+- **network calls are kernel-mediated**: `http.createServer()` registers a virtual listener in the kernel's network stack; `http.request()` to localhost routes through the kernel without real TCP — the kernel connects virtual server to virtual client directly; external requests go through the host adapter after permission checks
+- **the VFS is not the host file system** — files written by sandbox code live in the VFS (in-memory by default); host filesystem is accessible only through explicit read-only overlays (e.g., `node_modules`) configured by the embedder
+- **embedders provide host adapters** that implement actual I/O — a Node.js embedder provides real `fs` and `net`; a browser embedder provides `fetch`-based networking and no file system; sandbox code doesn't know which adapter backs the kernel
+- when implementing new I/O features (e.g., UDP, TCP servers, fs.watch), they MUST route through the kernel — never bypass it to hit the host directly
+- see `docs/nodejs-compatibility.mdx` for the architecture diagram
+
+## Code Transformation Policy
+
+- NEVER use regex-based source code transformation for JavaScript/TypeScript (e.g., converting ESM to CJS, rewriting imports, extracting exports)
+- regex transformers break on multi-line syntax, code inside strings/comments/template literals, and edge cases like `import X, { a } from 'Y'` — these bugs are subtle and hard to catch
+- instead, use proper tooling: `es-module-lexer` / `cjs-module-lexer` (the same WASM-based lexers Node.js uses), or run the transformation inside the V8 isolate where the JS engine handles parsing correctly
+- if a source transformation is needed at the bridge/host level, prefer a battle-tested library over hand-rolled regex
+- the V8 runtime already has dual-mode execution (`execute_script` for CJS, `execute_module` for ESM) — lean on V8's native module system rather than pre-transforming source on the host side
+- existing regex-based transforms (e.g., `convertEsmToCjs`, `transformDynamicImport`, `isESM`) are known technical debt and should be replaced
+
 
 ## Contracts (CRITICAL)
 

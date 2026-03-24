@@ -8,6 +8,41 @@ icon: "list-check"
 
 `22.x` (derived from the `@types/node` `22.x` validation baseline used by tests and type checks).
 
+## Architecture
+
+secure-exec runs Node.js code inside a V8 isolate with a **virtual kernel** that mediates all system access. Nothing in the sandbox touches the host OS directly:
+
+```
+┌─────────────────────────────────────────────────┐
+│  Sandbox (V8 Isolate)                           │
+│                                                 │
+│  User Code (require, fs, http, etc.)            │
+│       │                                         │
+│       ▼                                         │
+│  Bridge Layer (polyfills + bridge modules)      │
+│       │                                         │
+│       ▼                                         │
+│  Virtual Kernel                                 │
+│  ├── VFS (virtual file system)                  │
+│  ├── Process table (spawn, signals, exit)       │
+│  ├── Network stack (TCP, HTTP, DNS, UDP)         │
+│  └── Permissions engine (deny-by-default)       │
+│       │                                         │
+│       ▼                                         │
+│  Host Adapters (embedder-provided)              │
+└─────────────────────────────────────────────────┘
+       │
+       ▼
+  Host OS (file system, network, etc.)
+```
+
+**Key points:**
+
+- **All I/O routes through the virtual kernel.** `fs.readFile()` goes through the VFS, `http.request()` goes through the network stack, `child_process.spawn()` goes through the process table. The kernel enforces permissions at every boundary.
+- **Network calls are kernel-mediated.** `http.createServer()` registers a virtual listener in the kernel's network stack. `http.request()` to localhost routes through the kernel without touching real TCP — the kernel connects the virtual server to the virtual client directly. External requests go through the host adapter after permission checks.
+- **The VFS is not the host file system.** Files written by sandbox code live in the VFS (in-memory by default). The host file system is accessible only through explicit read-only overlays (e.g., `node_modules`) configured by the embedder.
+- **Embedders provide host adapters** that implement the actual I/O. A Node.js embedder provides real `fs` and `net`; a browser embedder provides `fetch`-based networking and no file system. The sandbox code doesn't know or care which adapter backs the kernel.
+
 ## Support Tiers
 
 | Tier | Label | Meaning |
@@ -57,6 +92,42 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 | `diagnostics_channel` | 3 (Stub) | No-op `channel()`, `tracingChannel()`, `Channel` constructor; channels always report `hasSubscribers: false`; `publish`, `subscribe`, `unsubscribe` are no-ops. Provides Fastify compatibility. |
 | Deferred modules (`net`, `tls`, `readline`, `perf_hooks`, `worker_threads`) | 4 (Deferred) | `require()` returns stubs; APIs throw deterministic unsupported errors when called. |
 | Unsupported modules (`dgram`, `cluster`, `wasi`, `inspector`, `repl`, `trace_events`, `domain`) | 5 (Unsupported) | `require()` fails immediately with deterministic unsupported-module errors. |
+
+## Permanently Unsupported Features
+
+Some Node.js features cannot be supported in secure-exec due to fundamental architectural constraints of the sandboxed V8 isolate. These are not planned for implementation.
+
+### Modules
+
+| Module | Reason |
+| --- | --- |
+| `cluster` | Requires multi-process coordination with shared server handles and IPC. The sandbox runs a single V8 isolate — there is no process table to fork into. |
+| `worker_threads` | Requires spawning OS threads with separate V8 isolates and shared memory (`SharedArrayBuffer`). The sandbox architecture is single-isolate-per-session. |
+| `vm` | `vm.createContext()` and `vm.runInNewContext()` require creating isolated V8 contexts within the same isolate. The sandbox provides one context. `vm.runInThisContext()` works (equivalent to `eval`). |
+| `inspector` | Exposes the V8 debugger protocol (breakpoints, heap snapshots, CPU profiling). This is a security surface that allows arbitrary code introspection and cannot be exposed in a sandbox. |
+| `domain` | Deprecated since Node.js v4 and removed from documentation. Not worth implementing — use `async_hooks` or structured error handling instead. |
+| `repl` | Interactive read-eval-print loop requiring full terminal integration, tab completion, and command history. Not meaningful in a sandboxed execution context. |
+| `trace_events` | Requires V8 tracing infrastructure and file-based trace log output. Not available in the sandboxed isolate. |
+| `wasi` | WASI (WebAssembly System Interface) requires a separate WASM runtime within the V8 isolate. Not applicable — secure-exec IS the sandbox. |
+
+### APIs
+
+| API | Reason |
+| --- | --- |
+| `child_process.fork()` | Creates a new Node.js process with IPC channel. Requires a real `node` binary and multi-process architecture. `spawn`/`exec`/`execFile` ARE supported. |
+| `process.execPath` | Returns path to the Node.js binary. The sandbox has no `node` binary on disk — code runs in an embedded V8 isolate, not a Node.js process. |
+| V8 CLI flags (`--expose-gc`, `--expose-internals`, `--harmony-*`) | The V8 isolate is pre-configured at sandbox creation time. Runtime flag injection is a security risk. `--expose-gc` may be supported in the future as a bridge call. |
+| V8 snapshot APIs (`v8.writeHeapSnapshot`, `v8.startupSnapshot`) | Require direct V8 C++ API access for heap serialization. Not exposed through the bridge. |
+| Native addons (`.node` files) | Require loading compiled shared libraries (`.so`/`.dylib`/`.dll`) into the process. The sandbox does not permit native code execution. |
+
+### Behaviors
+
+| Behavior | Reason |
+| --- | --- |
+| Real OS signals (`SIGTERM`, `SIGUSR1`, etc.) | The sandbox is not an OS process — it's a V8 isolate within a host process. There are no real POSIX signals to deliver. `process.on('SIGINT')` may be emulated in the future. |
+| Real file system watchers (`fs.watch`) | The VFS (virtual file system) has no inotify/kqueue equivalent. `fs.watch()` returns a stub that never emits events. Writes to VFS do not trigger watcher notifications. |
+| Multi-context execution | The sandbox runs one V8 context per isolate. Features requiring context isolation (ShadowRealm, `vm.createContext`) cannot work. |
+| QUIC protocol | Experimental in Node.js, depends on `tls` + `net` + OpenSSL QUIC support. Not planned. |
 
 ## Tested Packages
 
