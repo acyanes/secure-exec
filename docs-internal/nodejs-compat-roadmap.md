@@ -7,11 +7,14 @@ Current conformance: **11.3% genuine pass rate** (399/3532 tests, Node.js v22.14
 | Category | Tests |
 |----------|-------|
 | Passing (genuine) | 399 |
-| Blocked by fixable issues | 1570 |
-| Blocked by unfixable/out-of-scope | 1563 |
-| **Total** | **3532** |
+| Blocked by classified fixes (FIX-01 through FIX-33) | 1,570 |
+| In UNSUPPORTED-MODULE (many mislabeled, see breakdown below) | 1,226 |
+| Other (TEST-INFRA, UNSUPPORTED-API, HANGS, OTHER, VACUOUS) | 337 |
+| **Total** | **3,532** |
 
-*36 "vacuous" tests self-skip and exit 0 without testing anything — listed under VACUOUS below, counted in unfixable/out-of-scope.*
+*Of the 1,226 UNSUPPORTED-MODULE tests, ~822 are from modules that are actually bridged/deferred (https, http2, tls, net, dgram, readline, diagnostics_channel, async_hooks) and should be reclassified as implementation-gap. Only ~404 are truly architecture-limited (cluster, worker_threads, vm, inspector, repl, domain, snapshot, quic, shadow realm).*
+
+*36 "vacuous" tests self-skip and exit 0 without testing anything — listed under VACUOUS below.*
 
 ## Cross-Validation Testing Policy
 
@@ -66,7 +69,9 @@ When implementing polyfill/bridge features where both sides of a test go through
 | FIX-33 | process.on('unhandledRejection') handler | 1 |
 
 
-*FIX-17 (Sign/Verify), FIX-27 (compose), FIX-34 (vm), FIX-35 (worker_threads), FIX-36 (async_hooks), FIX-37 (net/tls), FIX-38 (readline), FIX-39 (diagnostics_channel) have 0 individually-classified tests — their tests are absorbed into UNSUPPORTED-MODULE glob patterns.*
+*FIX-17 (Sign/Verify), FIX-27 (compose), FIX-34 (vm), FIX-35 (worker_threads), FIX-36 (async_hooks), FIX-37 (net/tls), FIX-38 (readline), FIX-39 (diagnostics_channel) have 0 individually-classified tests — their tests are currently absorbed into UNSUPPORTED-MODULE glob patterns. Many of these modules are actually bridged or deferred (not truly unsupported) and their glob categorizations in expectations.json need to be updated. See the UNSUPPORTED-MODULE section below for the breakdown of what's truly unsupported vs mislabeled.*
+
+*dgram (UDP) is planned for implementation — ~76 tests currently in UNSUPPORTED-MODULE should move to a dgram FIX category once the UDP bridge is built.*
 
 ---
 
@@ -1989,9 +1994,28 @@ No unhandled Promise rejection capture. Fix: hook into V8's Promise rejection ha
 
 ### UNSUPPORTED-MODULE: entire module not implemented (1226 tests)
 
-**Resolution: ~50-100 tests rescuable with net bridge**
+**Resolution: Many modules here are mislabeled — they are bridged or deferred, not truly unsupported.**
 
-Breakdown: cluster (~83, never feasible), http2 (~256, feasible if net+tls bridged), tls (~192, feasible with OpenSSL bindings), net (~149, high effort TCP bridge), domain (~50, deprecated, never implement), inspector (~60, never feasible), repl (~75, never feasible), worker (~132, architecture-limited), readline (~19, partially feasible), dgram (~76, low priority), debugger (~25, never feasible), compiler (~15, never feasible), snapshot (~27, never feasible), shadow realm (~10, never feasible), quic (~4, never feasible), eslint (~24, not runtime), permission (~31, not runtime), trace (~35, not runtime), runner (~40, not runtime). Implementing net+tls bridge would rescue a subset of http2/https/tls tests.
+Modules that ARE bridged/deferred and should be reclassified to implementation-gap:
+- **https** (~62 tests) — IS a BRIDGE_MODULE. Glob is stale.
+- **http2** (~256 tests) — IS a BRIDGE_MODULE. Glob is stale.
+- **tls** (~192 tests) — DEFERRED_CORE_MODULE with stubs. Some tests only check API shape.
+- **net** (~149 tests) — DEFERRED_CORE_MODULE. `net.isIP()`/`isIPv4()`/`isIPv6()` work. Needs TCP bridge.
+- **dgram/UDP** (~76 tests) — Needs UDP bridge implementation. NOT out of scope.
+- **readline** (~19 tests) — DEFERRED_CORE_MODULE. Stateless tests could pass.
+- **diagnostics_channel** (~32 tests) — DEFERRED_CORE_MODULE. Simple pub/sub, easy to implement.
+- **async_hooks** (~36 tests) — DEFERRED_CORE_MODULE. AsyncLocalStorage partially feasible.
+
+Modules that are truly unsupported (architecture-limited):
+- **cluster** (~83 tests) — requires multi-process coordination, shared handles
+- **worker_threads** (~132 tests) — requires multi-isolate architecture
+- **vm** (~79 tests) — requires multi-context V8
+- **inspector/debugger** (~85 tests) — V8 inspector is a security surface
+- **repl** (~75 tests) — interactive, requires full shell integration
+- **domain** (~50 tests) — deprecated since Node 4, intentionally not implementing
+- **snapshot/compile** (~42 tests) — V8 snapshot APIs, native-only
+- **quic** (~4 tests) — experimental, depends on tls+net
+- **shadow realm** (~10 tests) — V8 ShadowRealm API, not exposed
 
 - `test-arm-math-illegal-instruction.js` (fail)
 - `test-assert-fail-deprecation.js` (fail)
