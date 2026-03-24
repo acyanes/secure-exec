@@ -70,6 +70,42 @@ Unsupported modules use: `"<module> is not supported in sandbox"`.
 | `trace_events` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
 | `domain` | ⛔ Unsupported | `require()` fails immediately with deterministic unsupported-module error. |
 
+## Permanently Unsupported Features
+
+Some Node.js features cannot be supported in secure-exec due to fundamental architectural constraints of the sandboxed V8 isolate. These are not planned for implementation.
+
+### Modules
+
+| Module | Reason |
+| --- | --- |
+| `cluster` | Requires multi-process coordination with shared server handles and IPC. The sandbox runs a single V8 isolate — there is no process table to fork into. |
+| `worker_threads` | Requires spawning OS threads with separate V8 isolates and shared memory (`SharedArrayBuffer`). The sandbox architecture is single-isolate-per-session. |
+| `vm` | `vm.createContext()` and `vm.runInNewContext()` require creating isolated V8 contexts within the same isolate. The sandbox provides one context. `vm.runInThisContext()` works (equivalent to `eval`). |
+| `inspector` | Exposes the V8 debugger protocol (breakpoints, heap snapshots, CPU profiling). This is a security surface that allows arbitrary code introspection and cannot be exposed in a sandbox. |
+| `domain` | Deprecated since Node.js v4 and removed from documentation. Not worth implementing — use `async_hooks` or structured error handling instead. |
+| `repl` | Interactive read-eval-print loop requiring full terminal integration, tab completion, and command history. Not meaningful in a sandboxed execution context. |
+| `trace_events` | Requires V8 tracing infrastructure and file-based trace log output. Not available in the sandboxed isolate. |
+| `wasi` | WASI (WebAssembly System Interface) requires a separate WASM runtime within the V8 isolate. Not applicable — secure-exec IS the sandbox. |
+
+### APIs
+
+| API | Reason |
+| --- | --- |
+| `child_process.fork()` | Creates a new Node.js process with IPC channel. Requires a real `node` binary and multi-process architecture. `spawn`/`exec`/`execFile` ARE supported. |
+| `process.execPath` | Returns path to the Node.js binary. The sandbox has no `node` binary on disk — code runs in an embedded V8 isolate, not a Node.js process. |
+| V8 CLI flags (`--expose-gc`, `--expose-internals`, `--harmony-*`) | The V8 isolate is pre-configured at sandbox creation time. Runtime flag injection is a security risk. `--expose-gc` may be supported in the future as a bridge call. |
+| V8 snapshot APIs (`v8.writeHeapSnapshot`, `v8.startupSnapshot`) | Require direct V8 C++ API access for heap serialization. Not exposed through the bridge. |
+| Native addons (`.node` files) | Require loading compiled shared libraries (`.so`/`.dylib`/`.dll`) into the process. The sandbox does not permit native code execution. |
+
+### Behaviors
+
+| Behavior | Reason |
+| --- | --- |
+| Real OS signals (`SIGTERM`, `SIGUSR1`, etc.) | The sandbox is not an OS process — it's a V8 isolate within a host process. There are no real POSIX signals to deliver. `process.on('SIGINT')` may be emulated in the future. |
+| Real file system watchers (`fs.watch`) | The VFS (virtual file system) has no inotify/kqueue equivalent. `fs.watch()` returns a stub that never emits events. Writes to VFS do not trigger watcher notifications. |
+| Multi-context execution | The sandbox runs one V8 context per isolate. Features requiring context isolation (ShadowRealm, `vm.createContext`) cannot work. |
+| QUIC protocol | Experimental in Node.js, depends on `tls` + `net` + OpenSSL QUIC support. Not planned. |
+
 ## Tested Packages
 
 The [project-matrix test suite](https://github.com/rivet-dev/secure-exec/tree/main/packages/secure-exec/tests/projects) validates that real-world npm packages produce identical output in secure-exec and host Node.js. Each fixture is a black-box Node project with no sandbox-specific code.
