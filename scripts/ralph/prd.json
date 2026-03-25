@@ -37,7 +37,7 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "~13 tests fail on key generation. generateKeyPair ed25519/ed448 callback not invoked. JWK output as JSON string not parsed object. DSA parameter validation too strict."
     },
     {
@@ -150,6 +150,7 @@
         "Verify: `runtime.exec('console.log(\"hello\")')` completes with code 0 and the onStdio hook receives 'hello'",
         "Verify: `runtime.exec('const fs = require(\"node:fs\"); console.log(typeof fs.readFileSync)')` completes with code 0 (require works)",
         "Add a smoke test in packages/secure-exec/tests/ that imports from dist/ (not source) and runs a basic exec \u2014 this prevents future regressions",
+        "Verify kernel path: kernel.spawn('node', ['-e', 'console.log(1)'], { onStdout }) captures '1' \u2014 same bridge bootstrap, just through kernel dispatch",
         "Tests pass",
         "Typecheck passes"
       ],
@@ -176,23 +177,6 @@
     },
     {
       "id": "US-010",
-      "title": "Fix kernel.spawn('node') bridge injection for node -e",
-      "description": "As a developer, I need kernel.spawn('node', ['-e', code]) to execute JS with full Node.js globals available.",
-      "acceptanceCriteria": [
-        "kernel.spawn('node', ['-e', 'console.log(\"hello\")'], { onStdout }) captures 'hello' output",
-        "kernel.spawn('node', ['-e', 'const path = require(\"node:path\"); console.log(path.join(\"/a\", \"b\"))'], { onStdout }) outputs '/a/b'",
-        "kernel.spawn('node', ['-e', 'process.exit(42)']) returns exit code 42",
-        "kernel.spawn('node', ['-e', 'console.error(\"err\")'], { onStderr }) captures 'err' on stderr",
-        "Verify from standalone script using dist/ output",
-        "Tests pass",
-        "Typecheck passes"
-      ],
-      "priority": 10,
-      "passes": false,
-      "notes": "Same root cause as US-008 \u2014 bridge bootstrap fails. Every kernel.spawn('node', ['-e', ...]) crashes with 'require is not defined' because the bridge IIFE doesn't execute. Fixing US-008 should fix this too, but verify the kernel path separately."
-    },
-    {
-      "id": "US-011",
       "title": "Fix HTTP agent keepalive and connection management",
       "description": "As a developer, I need HTTP agent connection pooling and keepalive to match Node.js behavior.",
       "acceptanceCriteria": [
@@ -207,12 +191,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 11,
+      "priority": 10,
       "passes": false,
       "notes": "~8 agent tests fail: test-http-agent-keepalive.js, test-http-agent-maxsockets.js, test-http-agent-maxtotalsockets.js, test-http-agent-destroyed-socket.js, etc."
     },
     {
-      "id": "US-012",
+      "id": "US-011",
       "title": "Fix HTTP server edge cases (CONNECT, upgrade, 1xx responses)",
       "description": "As a developer, I need HTTP server to handle CONNECT method, WebSocket upgrades, and informational responses.",
       "acceptanceCriteria": [
@@ -226,12 +210,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 12,
+      "priority": 11,
       "passes": false,
       "notes": "test-http-after-connect.js, test-http-information-headers.js, test-http-upgrade-*.js. CONNECT and upgrade need socket tunneling support."
     },
     {
-      "id": "US-013",
+      "id": "US-012",
       "title": "Fix HTTP client timeout, abort, and error handling",
       "description": "As a developer, I need HTTP client requests to handle timeouts, aborts, and errors correctly.",
       "acceptanceCriteria": [
@@ -245,12 +229,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 13,
+      "priority": 12,
       "passes": false,
       "notes": "test-http-client-timeout-option.js, test-http-abort-client.js, test-http-client-abort-*.js. Timeout and abort lifecycle events."
     },
     {
-      "id": "US-014",
+      "id": "US-013",
       "title": "Fix HTTP header validation and method handling",
       "description": "As a developer, I need HTTP header validation and method listing to match Node.js behavior.",
       "acceptanceCriteria": [
@@ -264,12 +248,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 14,
+      "priority": 13,
       "passes": false,
       "notes": "test-http-methods.js, test-http-client-invalid-path.js, test-http-invalidheaderfield2.js, test-http-invalid-path-chars.js."
     },
     {
-      "id": "US-015",
+      "id": "US-014",
       "title": "Fix HTTP pipeline, chunked encoding, and transfer edge cases",
       "description": "As a developer, I need HTTP pipelining and transfer encoding to work correctly.",
       "acceptanceCriteria": [
@@ -283,12 +267,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 15,
+      "priority": 14,
       "passes": false,
       "notes": "test-http-pipeline-*.js, test-http-chunk-problem.js, test-http-transfer-encoding-*.js, test-http-response-cork.js."
     },
     {
-      "id": "US-016",
+      "id": "US-015",
       "title": "Update HTTP expectations and regenerate conformance report",
       "description": "As a developer, I need HTTP conformance expectations cleaned up after fixes.",
       "acceptanceCriteria": [
@@ -300,12 +284,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 16,
+      "priority": 15,
       "passes": false,
       "notes": "Cleanup story for HTTP module. ~11 tests need --expose-internals, ~4 need execPath \u2014 these stay as expected failures."
     },
     {
-      "id": "US-017",
+      "id": "US-016",
       "title": "Fix net.Socket methods (setKeepAlive, setNoDelay, ref/unref, address)",
       "description": "As a developer, I need net.Socket to expose all standard methods.",
       "acceptanceCriteria": [
@@ -320,12 +304,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 17,
+      "priority": 16,
       "passes": false,
       "notes": "net.Socket API surface gaps. setKeepAlive and setNoDelay should pass through to kernel socket options via setsockopt. ref/unref control event loop."
     },
     {
-      "id": "US-018",
+      "id": "US-017",
       "title": "Fix net.Socket events (close, end, error, timeout, drain, connect)",
       "description": "As a developer, I need net.Socket to emit all standard events in the correct order.",
       "acceptanceCriteria": [
@@ -342,12 +326,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 18,
+      "priority": 17,
       "passes": false,
       "notes": "Most net test failures are missing events. The kernel socket table handles data transport but the bridge NetSocket class needs proper event emission."
     },
     {
-      "id": "US-019",
+      "id": "US-018",
       "title": "Fix net.Server API (getConnections, maxConnections, allowHalfOpen, listen options)",
       "description": "As a developer, I need net.Server to support all standard configuration and query methods.",
       "acceptanceCriteria": [
@@ -363,12 +347,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 19,
+      "priority": 18,
       "passes": false,
       "notes": "net.Server configuration gaps. getConnections needs kernel process table query. allowHalfOpen needs shutdown(SHUT_WR) support."
     },
     {
-      "id": "US-020",
+      "id": "US-019",
       "title": "Fix net.connect options and edge cases",
       "description": "As a developer, I need net.connect to handle all connection options and edge cases.",
       "acceptanceCriteria": [
@@ -383,12 +367,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 20,
+      "priority": 19,
       "passes": false,
       "notes": "net.connect option handling and edge cases. Unix path connects through kernel AF_UNIX sockets."
     },
     {
-      "id": "US-021",
+      "id": "US-020",
       "title": "Update net expectations and regenerate conformance report",
       "description": "As a developer, I need net conformance expectations cleaned up after fixes.",
       "acceptanceCriteria": [
@@ -399,12 +383,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 21,
+      "priority": 20,
       "passes": false,
       "notes": "Cleanup story for net module."
     },
     {
-      "id": "US-022",
+      "id": "US-021",
       "title": "Load TLS fixture files into conformance test VFS",
       "description": "As a developer, I need TLS test fixtures (certificates, keys) loaded into the VFS so TLS/HTTPS tests can find them.",
       "acceptanceCriteria": [
@@ -417,12 +401,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 22,
+      "priority": 21,
       "passes": false,
       "notes": "~169 TLS/HTTPS test failures are from missing fixture files. The runner already has loadFixtureFiles() but the fixtures directory may not have the upstream Node.js test fixtures vendored. Check if fixtures need to be copied from Node.js source."
     },
     {
-      "id": "US-023",
+      "id": "US-022",
       "title": "Fix TLS API gaps (createSecureContext, context options, certificate validation)",
       "description": "As a developer, I need core TLS APIs to work for conformance tests.",
       "acceptanceCriteria": [
@@ -437,12 +421,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 23,
+      "priority": 22,
       "passes": false,
       "notes": "Core TLS API surface. TLS handshake happens in host adapter. Bridge needs to expose createSecureContext, connect, createServer."
     },
     {
-      "id": "US-024",
+      "id": "US-023",
       "title": "Fix TLS SNI, ALPN, and session resumption",
       "description": "As a developer, I need advanced TLS features for conformance tests.",
       "acceptanceCriteria": [
@@ -457,12 +441,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 24,
+      "priority": 23,
       "passes": false,
       "notes": "Advanced TLS features. SNI and ALPN go through host adapter TLS options. Session resumption needs session state caching."
     },
     {
-      "id": "US-025",
+      "id": "US-024",
       "title": "Update tls/https expectations and regenerate conformance report",
       "description": "As a developer, I need tls and https conformance expectations cleaned up after fixes.",
       "acceptanceCriteria": [
@@ -475,12 +459,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 25,
+      "priority": 24,
       "passes": false,
       "notes": "Cleanup story for tls and https modules. ~16 tls tests self-skip via common.hasCrypto \u2014 these are vacuous-skip."
     },
     {
-      "id": "US-026",
+      "id": "US-025",
       "title": "Implement dgram.Socket API bridge (createSocket, bind, send, close)",
       "description": "As a developer, I need the dgram module bridged so UDP socket operations work in the sandbox.",
       "acceptanceCriteria": [
@@ -497,12 +481,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 26,
+      "priority": 25,
       "passes": false,
       "notes": "Kernel UDP (SocketTable sendTo/recvFrom) already works. This story bridges the dgram Node.js API to kernel UDP sockets. ~30 tests depend on basic send/recv."
     },
     {
-      "id": "US-027",
+      "id": "US-026",
       "title": "Implement dgram multicast, broadcast, and socket options",
       "description": "As a developer, I need dgram multicast and broadcast for conformance tests.",
       "acceptanceCriteria": [
@@ -518,12 +502,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 27,
+      "priority": 26,
       "passes": false,
       "notes": "Multicast operations go through host adapter. setBroadcast/setMulticastTTL are socket options passed through kernel setsockopt."
     },
     {
-      "id": "US-028",
+      "id": "US-027",
       "title": "Update dgram expectations and regenerate conformance report",
       "description": "As a developer, I need dgram conformance expectations cleaned up after fixes.",
       "acceptanceCriteria": [
@@ -534,12 +518,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 28,
+      "priority": 27,
       "passes": false,
       "notes": "Cleanup story for dgram module."
     },
     {
-      "id": "US-029",
+      "id": "US-028",
       "title": "Implement http2 session and stream basics (connect, request, respond)",
       "description": "As a developer, I need basic HTTP/2 client and server functionality.",
       "acceptanceCriteria": [
@@ -555,12 +539,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 29,
+      "priority": 28,
       "passes": false,
       "notes": "HTTP/2 is a major subsystem. This story covers basic request/response lifecycle. h2 framing goes through host adapter's http2 module."
     },
     {
-      "id": "US-030",
+      "id": "US-029",
       "title": "Implement http2 server push, settings, and GOAWAY",
       "description": "As a developer, I need HTTP/2 server push, settings negotiation, and connection management.",
       "acceptanceCriteria": [
@@ -576,12 +560,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 30,
+      "priority": 29,
       "passes": false,
       "notes": "HTTP/2 advanced features. Server push, settings frames, and GOAWAY connection management."
     },
     {
-      "id": "US-031",
+      "id": "US-030",
       "title": "Implement http2 flow control, errors, and compatibility mode",
       "description": "As a developer, I need HTTP/2 flow control, error handling, and HTTP/1 compatibility.",
       "acceptanceCriteria": [
@@ -595,12 +579,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 31,
+      "priority": 30,
       "passes": false,
       "notes": "HTTP/2 flow control and compatibility. allowHTTP1 mode lets server handle both h1 and h2. 4 tests already pass for compatibility mode."
     },
     {
-      "id": "US-032",
+      "id": "US-031",
       "title": "Update http2 expectations and regenerate final conformance report",
       "description": "As a developer, I need http2 expectations cleaned up and a final comprehensive report generated.",
       "acceptanceCriteria": [
@@ -613,12 +597,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 32,
+      "priority": 31,
       "passes": false,
       "notes": "Final cleanup story. Run entire conformance suite, update all expectations, regenerate both JSON and docs reports."
     },
     {
-      "id": "US-033",
+      "id": "US-032",
       "title": "Fix cross-runtime kernel network integration regressions",
       "description": "As a developer, I need the Node.js \u2194 WasmVM kernel networking path to work end-to-end so the cross-runtime proof story is actually true.",
       "acceptanceCriteria": [
@@ -630,12 +614,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 33,
+      "priority": 32,
       "passes": false,
       "notes": "US-036 from the previous PRD was marked done, but the signature cross-runtime proof test is currently red."
     },
     {
-      "id": "US-034",
+      "id": "US-033",
       "title": "Enforce deny-by-default kernel network permissions",
       "description": "As a developer, I need kernel socket operations to fail closed when no network policy is configured.",
       "acceptanceCriteria": [
@@ -647,12 +631,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 34,
+      "priority": 33,
       "passes": false,
       "notes": "Current code documents deny-by-default in SocketTable but only enforces when networkCheck exists, and KernelImpl does not provide one."
     },
     {
-      "id": "US-035",
+      "id": "US-034",
       "title": "Eliminate remaining Node bridge networking bypasses",
       "description": "As a developer, I need Node.js networking to use the kernel path consistently instead of shortcutting around it.",
       "acceptanceCriteria": [
@@ -664,12 +648,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 35,
+      "priority": 34,
       "passes": false,
       "notes": "Current loopback HTTP client requests short-circuit in bridge/network.ts, and external fetch/httpRequest still go straight through the adapter."
     },
     {
-      "id": "US-036",
+      "id": "US-035",
       "title": "Respect omitted network capability in standalone Node runtime",
       "description": "As a developer, I need omitted network adapters to keep networking unavailable instead of silently provisioning host access.",
       "acceptanceCriteria": [
@@ -680,12 +664,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 36,
+      "priority": 35,
       "passes": false,
       "notes": "NodeExecutionDriver currently provisions createNodeHostNetworkAdapter() when no socket table is injected."
     },
     {
-      "id": "US-037",
+      "id": "US-036",
       "title": "Replace regex-based Node loader source transforms",
       "description": "As a developer, I need Node module loading to stop relying on regex rewrites that violate repo policy and can drift from real semantics.",
       "acceptanceCriteria": [
@@ -696,12 +680,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 37,
+      "priority": 36,
       "passes": false,
       "notes": "US-056 improved targeted parity, but the implementation still depends on regex-based source transforms in active loader paths."
     },
     {
-      "id": "US-038",
+      "id": "US-037",
       "title": "Implement full WasmVM sigaction semantics",
       "description": "As a developer, I need the WasmVM signal bridge to carry real sigaction semantics instead of a reduced signal()/default/ignore shim.",
       "acceptanceCriteria": [
@@ -713,12 +697,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 38,
+      "priority": 37,
       "passes": false,
       "notes": "Current WasmVM signal support is cooperative and minimal; it does not faithfully carry sigaction masks/flags through the stack."
     },
     {
-      "id": "US-039",
+      "id": "US-038",
       "title": "Validate socket ownership against the kernel process table",
       "description": "As a developer, I need socket ownership to be tied to real kernel processes so process cleanup and isolation rules are meaningful.",
       "acceptanceCriteria": [
@@ -729,12 +713,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 39,
+      "priority": 38,
       "passes": false,
       "notes": "Current integration tests intentionally create sockets for nonexistent PID 99999, which undermines the ownership semantics claimed in the prior PRD."
     },
     {
-      "id": "US-040",
+      "id": "US-039",
       "title": "Correct vacuous pass accounting in Node conformance expectations",
       "description": "As a developer, I need self-skipping conformance tests to stop inflating the genuine pass count.",
       "acceptanceCriteria": [
@@ -745,12 +729,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 40,
+      "priority": 39,
       "passes": false,
       "notes": "Current runner logic only special-cases category=vacuous-skip, but several pass entries already admit they only pass via self-skip."
     },
     {
-      "id": "US-041",
+      "id": "US-040",
       "title": "Add hard CI guards for story-critical Wasm C artifacts",
       "description": "As a developer, I need CI to fail when required Wasm C binaries for story verification are missing instead of silently skipping the suites.",
       "acceptanceCriteria": [
@@ -760,12 +744,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 41,
+      "priority": 40,
       "passes": false,
       "notes": "Standalone command binaries already have a CI guard, but the C-built story artifacts still disappear behind skip guards when missing."
     },
     {
-      "id": "US-042",
+      "id": "US-041",
       "title": "Strengthen kernel networking tests against overfitting",
       "description": "As a developer, I need network verification that catches shared bugs instead of validating only mocked or same-code paths.",
       "acceptanceCriteria": [
@@ -777,12 +761,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 42,
+      "priority": 41,
       "passes": false,
       "notes": "Current lower-level tests are heavily mock-based, and a same-repo loopback HTTP bridge test passing did not prevent the end-to-end cross-runtime failure."
     },
     {
-      "id": "US-043",
+      "id": "US-042",
       "title": "Retarget kernel-consolidation verification suites away from legacy adapter paths",
       "description": "As a developer, I need the verification suites for kernel-consolidation work to exercise the kernel-backed runtime path instead of the legacy default-network adapter path.",
       "acceptanceCriteria": [
@@ -793,12 +777,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 43,
+      "priority": 42,
       "passes": false,
       "notes": "Several existing Node suites still validate the standalone default-network path, which inflated confidence in the kernel migration stories."
     },
     {
-      "id": "US-044",
+      "id": "US-043",
       "title": "Implement VFS correctness primitives for POSIX file semantics",
       "description": "As a developer, I need correct inode and directory semantics in the in-memory VFS so the kernel matches POSIX behavior for file creation, truncation, links, and readdir.",
       "acceptanceCriteria": [
@@ -812,12 +796,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 44,
+      "priority": 43,
       "passes": false,
       "notes": "Reference: docs-internal/posix-gaps-audit.md. Primary files: packages/core/src/kernel/kernel.ts and packages/core/src/shared/in-memory-fs.ts."
     },
     {
-      "id": "US-045",
+      "id": "US-044",
       "title": "Add unified blocking I/O wait primitives to the JS kernel",
       "description": "As a developer, I need blocking kernel operations to suspend and wake correctly instead of returning EAGAIN for blocking callers.",
       "acceptanceCriteria": [
@@ -830,12 +814,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 45,
+      "priority": 44,
       "passes": false,
       "notes": "Reference: docs-internal/posix-gaps-audit.md. Primary files: packages/core/src/kernel/pipe-manager.ts, packages/core/src/kernel/file-lock.ts, and packages/core/src/drivers/."
     },
     {
-      "id": "US-046",
+      "id": "US-045",
       "title": "Implement deferred unlink with inode-backed open-file lifetime",
       "description": "As a developer, I need unlinked files with open descriptors to remain accessible until the last FD closes.",
       "acceptanceCriteria": [
@@ -847,12 +831,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 46,
+      "priority": 45,
       "passes": false,
       "notes": "This depends on inode allocation/refcount work from the VFS correctness story."
     },
     {
-      "id": "US-047",
+      "id": "US-046",
       "title": "Implement signal handler registry and signal masking in the JS kernel",
       "description": "As a developer, I need sigaction and sigprocmask semantics so processes can catch, defer, and restart around signals.",
       "acceptanceCriteria": [
@@ -865,12 +849,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 47,
+      "priority": 46,
       "passes": false,
       "notes": "Build on existing kernel signal delivery in packages/core/src/kernel/kernel.ts and process-table logic."
     },
     {
-      "id": "US-048",
+      "id": "US-047",
       "title": "Build TCP server socket lifecycle in the JS kernel",
       "description": "As a developer, I need bind/listen/accept support so the kernel can host passive TCP listeners with proper backlog behavior.",
       "acceptanceCriteria": [
@@ -883,12 +867,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 48,
+      "priority": 47,
       "passes": false,
       "notes": "Reference: docs-internal/posix-gaps-audit.md. This is the main server-socket foundation for POSIX networking."
     },
     {
-      "id": "US-049",
+      "id": "US-048",
       "title": "Implement AF_UNIX stream and datagram sockets in-kernel",
       "description": "As a developer, I need Unix domain sockets for local IPC patterns like docker.sock, ssh-agent, and socket activation.",
       "acceptanceCriteria": [
@@ -902,12 +886,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 49,
+      "priority": 48,
       "passes": false,
       "notes": "AF_UNIX is entirely in-kernel and should not depend on host networking."
     },
     {
-      "id": "US-050",
+      "id": "US-049",
       "title": "Add UDP transport support to the JS kernel",
       "description": "As a developer, I need connectionless datagram transport with source-address reporting.",
       "acceptanceCriteria": [
@@ -918,12 +902,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 50,
+      "priority": 49,
       "passes": false,
       "notes": "Reference: docs-internal/posix-gaps-audit.md. Keep the kernel transport semantics separate from later wasi-ext/C wiring."
     },
     {
-      "id": "US-051",
+      "id": "US-050",
       "title": "Implement socket options and per-call send/recv flags",
       "description": "As a developer, I need basic setsockopt/getsockopt and per-call flags across socket types.",
       "acceptanceCriteria": [
@@ -936,12 +920,12 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 51,
+      "priority": 50,
       "passes": false,
       "notes": "This story enhances the socket types built by the TCP, AF_UNIX, and UDP stories."
     },
     {
-      "id": "US-052",
+      "id": "US-051",
       "title": "Populate /proc entries for process and FD introspection",
       "description": "As a developer, I need core /proc entries so programs can inspect process metadata and open descriptors.",
       "acceptanceCriteria": [
@@ -954,7 +938,7 @@
         "Tests pass",
         "Typecheck passes"
       ],
-      "priority": 52,
+      "priority": 51,
       "passes": false,
       "notes": "Lower urgency than the core POSIX data path work, but required for many userland tools."
     }

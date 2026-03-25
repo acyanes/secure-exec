@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Dispatch-multiplexed bridge globals must preserve `undefined` positional args plus host error `name`/`code`; raw `JSON.stringify(args)` and message-only errors break Node conformance in subtle ways
 - Conformance tests live in packages/secure-exec/tests/node-conformance/ — vendored Node.js v22.14.0 test/parallel/
 - Runner is packages/secure-exec/tests/node-conformance/runner.test.ts — run with: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts
 - Expectations are in packages/secure-exec/tests/node-conformance/expectations.json — each entry has expected (pass/fail/skip), reason, category
@@ -28,4 +29,14 @@
   - The conformance runner executes built `dist` artifacts, so source-only bridge changes will look ineffective until `@secure-exec/nodejs` is rebuilt and `@secure-exec/core` is rebuilt afterward.
   - Browserify crypto parsing is still a gap for DER/options-bag asymmetric APIs; routing those paths through host Node crypto is more reliable than trying to normalize every key shape inside the polyfill.
   - When host crypto errors cross the bridge, normalize `error.code` in the isolate if tests snapshot full Node-style error objects.
+---
+
+## [2026-03-25 02:50 PDT] - US-002
+- Implemented host-backed `crypto.generateKeySync`/`generateKey` and `crypto.generatePrimeSync`/`generatePrime`, fixed async `generateKeyPair` argument normalization for EdDSA/DH cases, and preserved structured bridge error metadata plus `undefined` dispatch args so keygen validation matches Node.
+- Removed stale crypto conformance expectations for newly passing keygen tests and regenerated the node conformance report.
+- Files changed: `.agent/contracts/node-bridge.md`, `packages/nodejs/src/bridge-contract.ts`, `packages/core/src/shared/bridge-contract.ts`, `packages/core/src/shared/global-exposure.ts`, `packages/nodejs/src/bridge/dispatch.ts`, `packages/nodejs/src/execution-driver.ts`, `packages/nodejs/src/bridge-handlers.ts`, `packages/core/isolate-runtime/src/inject/require-setup.ts`, `packages/core/src/generated/isolate-runtime.ts`, `packages/secure-exec/tests/test-suite/node/crypto.ts`, `packages/secure-exec/tests/node-conformance/expectations.json`, `packages/secure-exec/tests/node-conformance/conformance-report.json`, `docs/nodejs-conformance-report.mdx`, `scripts/ralph/prd.json`
+- **Learnings for future iterations:**
+  - Async crypto wrappers need Node-style split behavior: synchronous throw for argument validation, callback delivery for operational keygen failures.
+  - Bridge dispatch bugs can masquerade as API bugs; preserve both `undefined` arguments and structured errors before debugging higher-level crypto behavior.
+  - When a conformance expected-fail starts passing, remove the expectation first and rerun the exact file filter to confirm it is a genuine pass before regenerating the report.
 ---

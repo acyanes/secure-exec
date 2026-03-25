@@ -38,6 +38,8 @@ export const HOST_BRIDGE_GLOBAL_KEYS = {
 	cryptoAsymmetricOp: "_cryptoAsymmetricOp",
 	cryptoCreateKeyObject: "_cryptoCreateKeyObject",
 	cryptoGenerateKeyPairSync: "_cryptoGenerateKeyPairSync",
+	cryptoGenerateKeySync: "_cryptoGenerateKeySync",
+	cryptoGeneratePrimeSync: "_cryptoGeneratePrimeSync",
 	cryptoSubtle: "_cryptoSubtle",
 	fsReadFile: "_fsReadFile",
 	fsWriteFile: "_fsWriteFile",
@@ -224,6 +226,14 @@ export type CryptoCreateKeyObjectBridgeRef = BridgeApplySyncRef<
 >;
 export type CryptoGenerateKeyPairSyncBridgeRef = BridgeApplySyncRef<
 	[string, string],
+	string
+>;
+export type CryptoGenerateKeySyncBridgeRef = BridgeApplySyncRef<
+	[string, string],
+	string
+>;
+export type CryptoGeneratePrimeSyncBridgeRef = BridgeApplySyncRef<
+	[number, string],
 	string
 >;
 export type CryptoSubtleBridgeRef = BridgeApplySyncRef<[string], string>;

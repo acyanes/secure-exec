@@ -1,3 +1,4 @@
+import { checkPrimeSync } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
 import type { NodeSuiteContext } from "./runtime.js";
 
@@ -795,6 +796,185 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 		expect(exports.err).toBeNull();
 		expect(exports.pubType).toBe("public");
 		expect(exports.privType).toBe("private");
+	});
+
+	it("generateKeyPair async supports omitted options for ed25519", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			module.exports = await new Promise((resolve) => {
+				crypto.generateKeyPair('ed25519', (err, pub, priv) => {
+					resolve({
+						err: err ? { name: err.name, code: err.code, message: err.message } : null,
+						pubType: pub && pub.type,
+						pubKeyType: pub && pub.asymmetricKeyType,
+						privType: priv && priv.type,
+						privKeyType: priv && priv.asymmetricKeyType,
+					});
+				});
+			});
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.exports).toEqual({
+			err: null,
+			pubType: "public",
+			pubKeyType: "ed25519",
+			privType: "private",
+			privKeyType: "ed25519",
+		});
+	});
+
+	it("generateKeySync and generateKey return secret KeyObjects", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			module.exports = await new Promise((resolve) => {
+				const syncKey = crypto.generateKeySync('aes', { length: 256 });
+				crypto.generateKey('hmac', { length: 123 }, (err, asyncKey) => {
+					resolve({
+						err: err ? { name: err.name, code: err.code, message: err.message } : null,
+						syncType: syncKey.type,
+						syncSize: syncKey.symmetricKeySize,
+						syncLength: syncKey.export().length,
+						asyncType: asyncKey && asyncKey.type,
+						asyncSize: asyncKey && asyncKey.symmetricKeySize,
+						asyncLength: asyncKey ? asyncKey.export().length : null,
+					});
+				});
+			});
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.exports).toEqual({
+			err: null,
+			syncType: "secret",
+			syncSize: 32,
+			syncLength: 32,
+			asyncType: "secret",
+			asyncSize: 15,
+			asyncLength: 15,
+		});
+	});
+
+	it("async crypto key APIs throw validation errors synchronously", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			module.exports = (() => {
+				try {
+					crypto.generateKey(undefined, { length: 256 }, () => {});
+					return { ok: true };
+				} catch (err) {
+					return {
+						ok: false,
+						name: err.name,
+						code: err.code,
+						message: err.message,
+					};
+				}
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.exports).toEqual({
+			ok: false,
+			name: "TypeError",
+			code: "ERR_INVALID_ARG_TYPE",
+			message: 'The "type" argument must be of type string. Received undefined',
+		});
+	});
+
+	it("generateKeyPair throws DH group validation errors synchronously", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			module.exports = (() => {
+				try {
+					crypto.generateKeyPair('dh', { group: 'modp0' }, () => {});
+					return { ok: true };
+				} catch (err) {
+					return {
+						ok: false,
+						name: err.name,
+						code: err.code,
+						message: err.message,
+					};
+				}
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.exports).toEqual({
+			ok: false,
+			name: "Error",
+			code: "ERR_CRYPTO_UNKNOWN_DH_GROUP",
+			message: "Unknown DH group",
+		});
+	});
+
+	it("generatePrimeSync and generatePrime return valid primes", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			module.exports = await new Promise((resolve) => {
+				const syncPrime = crypto.generatePrimeSync(32);
+				const bigintPrime = crypto.generatePrimeSync(3, { bigint: true });
+				crypto.generatePrime(32, (err, asyncPrime) => {
+					resolve({
+						err: err ? { name: err.name, code: err.code, message: err.message } : null,
+						syncPrime: Buffer.from(syncPrime).toString('base64'),
+						asyncPrime: asyncPrime ? Buffer.from(asyncPrime).toString('base64') : null,
+						bigintPrime: bigintPrime.toString(),
+					});
+				});
+			});
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		const exports = result.exports as any;
+		expect(exports.err).toBeNull();
+		expect(checkPrimeSync(Buffer.from(exports.syncPrime, "base64"))).toBe(true);
+		expect(checkPrimeSync(Buffer.from(exports.asyncPrime, "base64"))).toBe(true);
+		expect(exports.bigintPrime).toBe("7");
+	});
+
+	it("generateKeyPairSync preserves host crypto error codes", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			module.exports = (() => {
+				try {
+					crypto.generateKeyPairSync('ec', {
+						namedCurve: 'P-256',
+						paramEncoding: 'otherEncoding',
+						publicKeyEncoding: { type: 'spki', format: 'pem' },
+						privateKeyEncoding: {
+							type: 'pkcs8',
+							format: 'pem',
+							cipher: 'aes-128-cbc',
+							passphrase: 'top secret',
+						},
+					});
+					return { ok: true };
+				} catch (err) {
+					return {
+						ok: false,
+						name: err.name,
+						code: err.code,
+						message: err.message,
+					};
+				}
+			})();
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.exports).toEqual({
+			ok: false,
+			name: "TypeError",
+			code: "ERR_INVALID_ARG_VALUE",
+			message: "The property 'options.paramEncoding' is invalid. Received 'otherEncoding'",
+		});
 	});
 
 	it("createPublicKey and createPrivateKey from PEM strings", async () => {

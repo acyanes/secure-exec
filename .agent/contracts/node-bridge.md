@@ -160,3 +160,11 @@ The bridge global key registry consumed by host runtime setup, bridge modules, a
 #### Scenario: Native V8 bridge registries stay aligned with async and sync lifecycle hooks
 - **WHEN** bridge modules depend on a host bridge global via async `.apply(..., { result: { promise: true } })` or sync `.applySync(...)` semantics
 - **THEN** the native V8 bridge function registries MUST expose a matching callable shape for that global (or an equivalent tested shim), and automated verification MUST cover the registry alignment
+
+### Requirement: Dispatch-Multiplexed Bridge Errors Preserve Structured Metadata
+Bridge globals routed through the `_loadPolyfill` dispatch multiplexer SHALL preserve host error metadata needed for Node-compatible assertions.
+
+#### Scenario: Host bridge throws typed crypto validation error
+- **WHEN** a dispatch-multiplexed bridge handler throws a host error with `name` and `code` (for example `TypeError` + `ERR_INVALID_ARG_VALUE`)
+- **THEN** the sandbox-visible error MUST preserve that `name` and `code`
+- **AND** the bridge MUST NOT collapse the error to a plain `Error` with only a message

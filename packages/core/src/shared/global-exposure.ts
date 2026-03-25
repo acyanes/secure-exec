@@ -259,6 +259,16 @@ export const NODE_CUSTOM_GLOBAL_INVENTORY: readonly CustomGlobalInventoryEntry[]
 		rationale: "Host crypto key-pair generation bridge reference.",
 	},
 	{
+		name: "_cryptoGenerateKeySync",
+		classification: "hardened",
+		rationale: "Host symmetric crypto key generation bridge reference.",
+	},
+	{
+		name: "_cryptoGeneratePrimeSync",
+		classification: "hardened",
+		rationale: "Host prime generation bridge reference.",
+	},
+	{
 		name: "_cryptoSubtle",
 		classification: "hardened",
 		rationale: "Host WebCrypto subtle bridge reference.",

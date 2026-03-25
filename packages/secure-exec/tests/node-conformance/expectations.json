@@ -1946,36 +1946,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-crypto-keygen-async-dsa.js": {
-      "reason": "DSA key generation fails — OpenSSL 'bad ffc parameters' error for DSA modulusLength/divisorLength combinations",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-crypto-keygen-async-encrypted-private-key.js": {
-      "reason": "generateKeyPair with encrypted PEM private key encoding produces invalid output — key validation fails",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-crypto-keygen-eddsa.js": {
-      "reason": "generateKeyPair callback invocation broken for ed25519/ed448 key types — callback not called correctly",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-crypto-keygen-invalid-parameter-encoding-dsa.js": {
-      "reason": "generateKeyPairSync does not throw for invalid DSA parameter encoding — error validation missing",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-crypto-keygen-invalid-parameter-encoding-ec.js": {
-      "reason": "generateKeyPairSync does not throw for invalid EC parameter encoding — error validation missing",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-crypto-keygen.js": {
-      "reason": "generateKeyPairSync does not validate required options — missing TypeError for invalid arguments",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-crypto-padding.js": {
       "reason": "createCipheriv/createDecipheriv do not throw expected exceptions for invalid padding options",
       "category": "implementation-gap",
@@ -1998,11 +1968,6 @@
     },
     "test-crypto-rsa-dsa.js": {
       "reason": "fs.readFileSync encoding argument handled as path component — test reads fixture PEM/cert files which fail to load",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-crypto-secret-keygen.js": {
-      "reason": "crypto.generateKey() function not implemented in bridge — only generateKeyPairSync/generateKeyPair are bridged",
       "category": "implementation-gap",
       "expected": "fail"
     },

@@ -27,6 +27,8 @@ import {
 	createPrivateKey,
 	createPublicKey,
 	createSecretKey,
+	generateKeySync,
+	generatePrimeSync,
 	publicEncrypt,
 	privateDecrypt,
 	privateEncrypt,
@@ -147,6 +149,13 @@ type SerializedBridgeValue =
 interface CipherSession {
 	cipher: Cipher | Decipher;
 	algorithm: string;
+}
+
+interface SerializedDispatchError {
+	message: string;
+	name?: string;
+	code?: string;
+	stack?: string;
 }
 
 function serializeKeyDetails(details: unknown): Record<string, unknown> | undefined {
@@ -333,6 +342,59 @@ function deserializeBridgeValue(value: SerializedBridgeValue): unknown {
 
 	return Object.fromEntries(
 		Object.entries(value).map(([key, entry]) => [key, deserializeBridgeValue(entry)]),
+	);
+}
+
+function parseSerializedOptions(
+	optionsJson: unknown,
+): unknown {
+	const parsed = JSON.parse(String(optionsJson)) as {
+		hasOptions?: boolean;
+		options?: SerializedBridgeValue;
+	};
+	if (!parsed || parsed.hasOptions !== true) {
+		return undefined;
+	}
+	return deserializeBridgeValue(parsed.options ?? null);
+}
+
+function serializeDispatchError(error: unknown): SerializedDispatchError {
+	if (error instanceof Error) {
+		const withCode = error as Error & {
+			code?: unknown;
+		};
+		return {
+			message: error.message,
+			name: error.name,
+			code: typeof withCode.code === "string" ? withCode.code : undefined,
+			stack: error.stack,
+		};
+	}
+
+	return {
+		message: String(error),
+		name: "Error",
+	};
+}
+
+function restoreDispatchArgument(value: unknown): unknown {
+	if (!value || typeof value !== "object") {
+		return value;
+	}
+
+	if (
+		(value as { __secureExecDispatchType?: unknown }).__secureExecDispatchType ===
+		"undefined"
+	) {
+		return undefined;
+	}
+
+	if (Array.isArray(value)) {
+		return value.map((entry) => restoreDispatchArgument(entry));
+	}
+
+	return Object.fromEntries(
+		Object.entries(value).map(([key, entry]) => [key, restoreDispatchArgument(entry)]),
 	);
 }
 
@@ -606,11 +668,16 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 		type: unknown,
 		optionsJson: unknown,
 	) => {
-		const options = JSON.parse(String(optionsJson));
+		const options = parseSerializedOptions(optionsJson);
+		const encodingOptions = options as
+			| {
+					publicKeyEncoding?: unknown;
+					privateKeyEncoding?: unknown;
+			  }
+			| undefined;
 		const hasExplicitEncoding =
-			options &&
-			typeof options === "object" &&
-			(options.publicKeyEncoding || options.privateKeyEncoding);
+			encodingOptions &&
+			(encodingOptions.publicKeyEncoding || encodingOptions.privateKeyEncoding);
 		const { publicKey, privateKey } = generateKeyPairSync(type as any, options as any);
 
 		if (hasExplicitEncoding) {
@@ -624,6 +691,32 @@ export function buildCryptoBridgeHandlers(): CryptoBridgeResult {
 			publicKey: serializeSandboxKeyObject(publicKey as any),
 			privateKey: serializeSandboxKeyObject(privateKey as any),
 		});
+	};
+
+	// generateKeySync — host generates symmetric KeyObject values with native
+	// validation so length/error semantics match Node.
+	handlers[K.cryptoGenerateKeySync] = (
+		type: unknown,
+		optionsJson: unknown,
+	) => {
+		const options = parseSerializedOptions(optionsJson);
+		return JSON.stringify(
+			serializeAnyKeyObject(generateKeySync(type as any, options as any)),
+		);
+	};
+
+	// generatePrimeSync — host generates prime material so bigint/add/rem options
+	// follow Node semantics instead of polyfill approximations.
+	handlers[K.cryptoGeneratePrimeSync] = (
+		size: unknown,
+		optionsJson: unknown,
+	) => {
+		const options = parseSerializedOptions(optionsJson);
+		const prime =
+			options === undefined
+				? generatePrimeSync(size as any)
+				: generatePrimeSync(size as any, options as any);
+		return JSON.stringify(serializeBridgeValue(prime));
 	};
 
 	// crypto.subtle — single dispatcher for all Web Crypto API operations.
@@ -1709,11 +1802,11 @@ export function buildModuleLoadingBridgeHandlers(
 			const handler = dispatchHandlers[method];
 			if (!handler) return JSON.stringify({ __bd_error: `No handler: ${method}` });
 			try {
-				const args = JSON.parse(argsJson);
+				const args = restoreDispatchArgument(JSON.parse(argsJson));
 				const result = await handler(...(Array.isArray(args) ? args : [args]));
 				return JSON.stringify({ __bd_result: result });
 			} catch (err) {
-				return JSON.stringify({ __bd_error: err instanceof Error ? err.message : String(err) });
+				return JSON.stringify({ __bd_error: serializeDispatchError(err) });
 			}
 		}
 

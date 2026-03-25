@@ -832,6 +832,9 @@
               if (!value || typeof value !== 'object') {
                 return value;
               }
+              if (value.__type === 'buffer') {
+                return Buffer.from(value.value, 'base64');
+              }
               if (value.__type === 'bigint') {
                 return BigInt(value.value);
               }
@@ -993,12 +996,55 @@
               return value;
             }
 
-            function normalizeGenerateKeyPairOptions(options) {
-              if (!options || typeof options !== 'object') {
-                return options || {};
+            function serializeBridgeOptions(options) {
+              return JSON.stringify({
+                hasOptions: options !== undefined,
+                options: options === undefined ? null : serializeBridgeValue(options),
+              });
+            }
+
+            function createInvalidArgTypeError(name, expected, value) {
+              var received;
+              if (value === undefined) {
+                received = 'undefined';
+              } else if (value === null) {
+                received = 'null';
+              } else {
+                received = 'type ' + typeof value;
               }
-              var normalized = Object.assign({}, options);
-              return normalized;
+              var error = new TypeError('The "' + name + '" argument must be ' + expected + '. Received ' + received);
+              error.code = 'ERR_INVALID_ARG_TYPE';
+              return error;
+            }
+
+            function scheduleCryptoCallback(callback, args) {
+              setTimeout(function() {
+                callback.apply(undefined, args);
+              }, 0);
+            }
+
+            function shouldThrowCryptoValidationError(error) {
+              if (!error || typeof error !== 'object') {
+                return false;
+              }
+              if (error.name === 'TypeError' || error.name === 'RangeError') {
+                return true;
+              }
+              var code = error.code;
+              return code === 'ERR_MISSING_OPTION' ||
+                code === 'ERR_CRYPTO_UNKNOWN_DH_GROUP' ||
+                code === 'ERR_OUT_OF_RANGE' ||
+                (typeof code === 'string' && code.indexOf('ERR_INVALID_ARG_') === 0);
+            }
+
+            function ensureCryptoCallback(callback, syncValidator) {
+              if (typeof callback === 'function') {
+                return callback;
+              }
+              if (typeof syncValidator === 'function') {
+                syncValidator();
+              }
+              throw createInvalidArgTypeError('callback', 'of type function', callback);
             }
 
             function SandboxKeyObject(type, handle) {
@@ -1225,6 +1271,7 @@
             function createGeneratedKeyObject(value) {
               return new SandboxKeyObject(value.type, {
                 pem: value.pem,
+                raw: value.raw,
                 jwk: value.jwk,
                 asymmetricKeyType: value.asymmetricKeyType,
                 asymmetricKeyDetails: value.asymmetricKeyDetails,
@@ -1232,10 +1279,9 @@
             }
 
             result.generateKeyPairSync = function generateKeyPairSync(type, options) {
-              var opts = normalizeGenerateKeyPairOptions(options);
               var resultJson = _cryptoGenerateKeyPairSync.applySync(undefined, [
                 type,
-                JSON.stringify(opts),
+                serializeBridgeOptions(options),
               ]);
               var parsed = JSON.parse(resultJson);
 
@@ -1253,13 +1299,87 @@
             };
 
             result.generateKeyPair = function generateKeyPair(type, options, callback) {
+              if (typeof options === 'function') {
+                callback = options;
+                options = undefined;
+              }
+              callback = ensureCryptoCallback(callback, function() {
+                result.generateKeyPairSync(type, options);
+              });
               try {
                 var pair = result.generateKeyPairSync(type, options);
-                callback(null, pair.publicKey, pair.privateKey);
+                scheduleCryptoCallback(callback, [null, pair.publicKey, pair.privateKey]);
               } catch (e) {
-                callback(e);
+                if (shouldThrowCryptoValidationError(e)) {
+                  throw e;
+                }
+                scheduleCryptoCallback(callback, [e]);
               }
             };
+
+            if (typeof _cryptoGenerateKeySync !== 'undefined') {
+              result.generateKeySync = function generateKeySync(type, options) {
+                var resultJson;
+                try {
+                  resultJson = _cryptoGenerateKeySync.applySync(undefined, [
+                    type,
+                    serializeBridgeOptions(options),
+                  ]);
+                } catch (error) {
+                  throw normalizeCryptoBridgeError(error);
+                }
+                return createGeneratedKeyObject(JSON.parse(resultJson));
+              };
+
+              result.generateKey = function generateKey(type, options, callback) {
+                callback = ensureCryptoCallback(callback, function() {
+                  result.generateKeySync(type, options);
+                });
+                try {
+                  var key = result.generateKeySync(type, options);
+                  scheduleCryptoCallback(callback, [null, key]);
+                } catch (e) {
+                  if (shouldThrowCryptoValidationError(e)) {
+                    throw e;
+                  }
+                  scheduleCryptoCallback(callback, [e]);
+                }
+              };
+            }
+
+            if (typeof _cryptoGeneratePrimeSync !== 'undefined') {
+              result.generatePrimeSync = function generatePrimeSync(size, options) {
+                var resultJson;
+                try {
+                  resultJson = _cryptoGeneratePrimeSync.applySync(undefined, [
+                    size,
+                    serializeBridgeOptions(options),
+                  ]);
+                } catch (error) {
+                  throw normalizeCryptoBridgeError(error);
+                }
+                return restoreBridgeValue(JSON.parse(resultJson));
+              };
+
+              result.generatePrime = function generatePrime(size, options, callback) {
+                if (typeof options === 'function') {
+                  callback = options;
+                  options = undefined;
+                }
+                callback = ensureCryptoCallback(callback, function() {
+                  result.generatePrimeSync(size, options);
+                });
+                try {
+                  var prime = result.generatePrimeSync(size, options);
+                  scheduleCryptoCallback(callback, [null, prime]);
+                } catch (e) {
+                  if (shouldThrowCryptoValidationError(e)) {
+                    throw e;
+                  }
+                  scheduleCryptoCallback(callback, [e]);
+                }
+              };
+            }
 
             result.createPublicKey = function createPublicKey(key) {
               if (typeof _cryptoCreateKeyObject !== 'undefined') {
