@@ -79,7 +79,7 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "~15 webcrypto tests. Bridge crypto.subtle operations through host dispatch. Check if globalThis.crypto is already exposed or needs wiring."
     },
     {

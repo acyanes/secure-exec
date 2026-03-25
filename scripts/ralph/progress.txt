@@ -1,6 +1,7 @@
 ## Codebase Patterns
 - Dispatch-multiplexed bridge globals must preserve `undefined` positional args plus host error `name`/`code`; raw `JSON.stringify(args)` and message-only errors break Node conformance in subtle ways
 - For stateful Node crypto APIs that browserify only partially emulates, bridge the real host objects by session id and forward methods instead of trying to recreate DH/ECDH state inside the isolate
+- Global WebCrypto is split across `packages/nodejs/src/bridge/process.ts` and `packages/core/isolate-runtime/src/inject/require-setup.ts`; keep `globalThis.crypto` and `require('crypto').webcrypto` aliased to the same object or conformance diverges
 - Conformance tests live in packages/secure-exec/tests/node-conformance/ — vendored Node.js v22.14.0 test/parallel/
 - Runner is packages/secure-exec/tests/node-conformance/runner.test.ts — run with: pnpm vitest run packages/secure-exec/tests/node-conformance/runner.test.ts
 - Expectations are in packages/secure-exec/tests/node-conformance/expectations.json — each entry has expected (pass/fail/skip), reason, category
@@ -50,4 +51,14 @@
   - Host-managed crypto objects with mutable internal state are safer to expose through a session-id bridge than by trying to mirror their state in sandbox JavaScript.
   - `crypto.getDiffieHellman()` returns a different host type than `createDiffieHellman()`, so shared bridge maps should type for both `DiffieHellman` and `DiffieHellmanGroup`.
   - Rebuilding `@secure-exec/nodejs` is what refreshes `packages/core/src/generated/isolate-runtime.ts`; commit the generated manifest alongside `require-setup.ts` changes.
+---
+
+## [2026-03-25 03:12 PDT] - US-004
+- Replaced the stub global WebCrypto surface with a class-based bridge in `packages/nodejs/src/bridge/process.ts`, including `Crypto`, `SubtleCrypto`, and `CryptoKey` constructor semantics, receiver validation, host-backed subtle method forwarding, and Node-compatible `getRandomValues`/`randomUUID` behavior.
+- Updated the isolate bootstrap to alias `require('crypto').webcrypto` to the same global WebCrypto object, added focused runtime coverage for the global alias/receiver path, removed stale conformance expectations for newly passing global WebCrypto tests, and regenerated the node conformance report.
+- Files changed: `.agent/contracts/node-bridge.md`, `packages/nodejs/src/bridge/process.ts`, `packages/core/isolate-runtime/src/inject/require-setup.ts`, `packages/core/src/generated/isolate-runtime.ts`, `packages/secure-exec/tests/test-suite/node/crypto.ts`, `packages/secure-exec/tests/node-conformance/expectations.json`, `packages/secure-exec/tests/node-conformance/conformance-report.json`, `docs/nodejs-conformance-report.mdx`, `scripts/ralph/prd.json`
+- **Learnings for future iterations:**
+  - WebCrypto conformance splits between the always-present global bridge (`process.ts`) and the `require('crypto')` overlay (`require-setup.ts`); fixing only one side leaves the other test family broken.
+  - The conformance runner treats newly passing expected-fails as hard failures, so expectation cleanup is part of the implementation, not a follow-up task.
+  - `getRandomValues` needs both Node-style detached-receiver validation and DOMException-shaped argument errors; plain object methods or generic `TypeError`s are not enough.
 ---

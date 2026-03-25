@@ -12,10 +12,10 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | Node.js version | 22.14.0 |
 | Source | v22.14.0 (test/parallel/) |
 | Total tests | 3532 |
-| Passing (genuine) | 738 (20.9%) |
+| Passing (genuine) | 741 (21.0%) |
 | Passing (vacuous self-skip) | 34 |
-| Passing (total) | 772 (21.9%) |
-| Expected fail | 2689 |
+| Passing (total) | 775 (21.9%) |
+| Expected fail | 2686 |
 | Skip | 71 |
 | Last updated | 2026-03-25 |
 
@@ -23,7 +23,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 
 | Category | Tests |
 | --- | --- |
-| implementation-gap | 1388 |
+| implementation-gap | 1385 |
 | unsupported-module | 737 |
 | requires-v8-flags | 239 |
 | requires-exec-path | 200 |
@@ -116,7 +116,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | freeze | 1 | 0 | 1 | 0 | 0.0% |
 | fs | 232 | 69 (8 vacuous) | 129 | 34 | 34.8% |
 | gc | 3 | 0 | 3 | 0 | 0.0% |
-| global | 11 | 2 | 9 | 0 | 18.2% |
+| global | 11 | 3 | 8 | 0 | 27.3% |
 | h2 | 1 | 0 | 1 | 0 | 0.0% |
 | h2leak | 1 | 0 | 1 | 0 | 0.0% |
 | handle | 2 | 1 | 1 | 0 | 50.0% |
@@ -234,7 +234,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | vm | 79 | 11 | 67 | 1 | 14.1% |
 | warn | 2 | 0 | 2 | 0 | 0.0% |
 | weakref | 1 | 1 | 0 | 0 | 100.0% |
-| webcrypto | 28 | 15 | 13 | 0 | 53.6% |
+| webcrypto | 28 | 17 | 11 | 0 | 60.7% |
 | websocket | 2 | 1 | 1 | 0 | 50.0% |
 | webstorage | 1 | 0 | 1 | 0 | 0.0% |
 | webstream | 4 | 0 | 4 | 0 | 0.0% |
@@ -245,11 +245,11 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 | wrap | 4 | 0 | 4 | 0 | 0.0% |
 | x509 | 1 | 0 | 1 | 0 | 0.0% |
 | zlib | 53 | 17 | 33 | 3 | 34.0% |
-| **Total** | **3532** | **772** | **2689** | **71** | **22.3%** |
+| **Total** | **3532** | **775** | **2686** | **71** | **22.4%** |
 
 ## Expectations Detail
 
-### implementation-gap (707 entries)
+### implementation-gap (704 entries)
 
 **Glob patterns:**
 
@@ -260,7 +260,7 @@ description: Node.js v22 test/parallel/ conformance results for the secure-exec 
 - `test-https-*.js` — https depends on tls — most tests fail on missing TLS fixture files or crypto API gaps
 - `test-http2-*.js` — http2 module bridged via kernel — most tests fail on API gaps, missing fixtures, or protocol handling
 
-*701 individual tests — see expectations.json for full list.*
+*698 individual tests — see expectations.json for full list.*
 
 ### unsupported-module (190 entries)
 

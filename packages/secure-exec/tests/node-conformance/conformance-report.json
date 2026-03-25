@@ -5,13 +5,13 @@
   "generatedAt": "2026-03-25",
   "summary": {
     "total": 3532,
-    "pass": 772,
-    "genuinePass": 738,
+    "pass": 775,
+    "genuinePass": 741,
     "vacuousPass": 34,
-    "fail": 2689,
+    "fail": 2686,
     "skip": 71,
     "passRate": "21.9%",
-    "genuinePassRate": "20.9%"
+    "genuinePassRate": "21.0%"
   },
   "modules": {
     "abortcontroller": {
@@ -569,9 +569,9 @@
     },
     "global": {
       "total": 11,
-      "pass": 2,
+      "pass": 3,
       "vacuousPass": 0,
-      "fail": 9,
+      "fail": 8,
       "skip": 0
     },
     "h2": {
@@ -1395,9 +1395,9 @@
     },
     "webcrypto": {
       "total": 28,
-      "pass": 15,
+      "pass": 17,
       "vacuousPass": 0,
-      "fail": 13,
+      "fail": 11,
       "skip": 0
     },
     "websocket": {
@@ -1472,7 +1472,7 @@
     }
   },
   "categories": {
-    "implementation-gap": 1388,
+    "implementation-gap": 1385,
     "native-addon": 3,
     "requires-exec-path": 200,
     "requires-v8-flags": 239,

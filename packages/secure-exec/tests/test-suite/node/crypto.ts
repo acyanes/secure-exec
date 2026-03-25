@@ -1193,6 +1193,49 @@ export function runNodeCryptoSuite(context: NodeSuiteContext): void {
 
 	// crypto.subtle (Web Crypto API) tests
 
+	it("globalThis.crypto matches require('crypto').webcrypto", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const crypto = require('crypto');
+			module.exports = {
+				sameObject: globalThis.crypto === crypto.webcrypto,
+				sameSubtle: globalThis.crypto.subtle === crypto.webcrypto.subtle,
+				cryptoCtor: globalThis.crypto.constructor.name,
+				subtleCtor: globalThis.crypto.subtle.constructor.name,
+			};
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.exports).toEqual({
+			sameObject: true,
+			sameSubtle: true,
+			cryptoCtor: "SandboxCrypto",
+			subtleCtor: "SandboxSubtleCrypto",
+		});
+	});
+
+	it("globalThis.crypto.getRandomValues validates detached receivers", async () => {
+		const runtime = await context.createRuntime();
+		const result = await runtime.run(`
+			const { getRandomValues } = globalThis.crypto;
+			try {
+				getRandomValues(new Uint8Array(4));
+				module.exports = { code: null };
+			} catch (error) {
+				module.exports = {
+					name: error.name,
+					code: error.code,
+				};
+			}
+		`);
+		expect(result.code).toBe(0);
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.exports).toEqual({
+			name: "TypeError",
+			code: "ERR_INVALID_THIS",
+		});
+	});
+
 	it("subtle.digest('SHA-256', data) matches createHash output", async () => {
 		const runtime = await context.createRuntime();
 		const result = await runtime.run(`

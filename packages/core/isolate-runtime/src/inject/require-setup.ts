@@ -1859,8 +1859,17 @@
               });
             };
 
-            result.subtle = SandboxSubtle;
-            result.webcrypto = { subtle: SandboxSubtle, getRandomValues: result.randomFillSync };
+            if (
+              globalThis.crypto &&
+              globalThis.crypto.subtle &&
+              typeof globalThis.crypto.subtle.importKey === 'function'
+            ) {
+              result.subtle = globalThis.crypto.subtle;
+              result.webcrypto = globalThis.crypto;
+            } else {
+              result.subtle = SandboxSubtle;
+              result.webcrypto = { subtle: SandboxSubtle, getRandomValues: result.randomFillSync };
+            }
           }
 
           // Enumeration functions: getCurves, getCiphers, getHashes.

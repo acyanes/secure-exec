@@ -4265,11 +4265,6 @@
       "category": "implementation-gap",
       "expected": "fail"
     },
-    "test-global-webcrypto.js": {
-      "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
     "test-global-webstreams.js": {
       "reason": "require('stream/web') fails — stream/web ESM wrapper contains 'export' syntax that the CJS compilation path cannot parse (SyntaxError: Unexpected token 'export')",
       "category": "implementation-gap",
@@ -5765,16 +5760,6 @@
     },
     "test-webcrypto-export-import-rsa.js": {
       "reason": "uses crypto/webcrypto APIs not fully bridged in sandbox",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-webcrypto-getRandomValues.js": {
-      "reason": "globalThis.crypto.getRandomValues called without receiver does not throw ERR_INVALID_THIS in sandbox — WebCrypto polyfill does not enforce receiver binding",
-      "category": "implementation-gap",
-      "expected": "fail"
-    },
-    "test-webcrypto-random.js": {
-      "reason": "sandbox crypto.getRandomValues() throws plain TypeError instead of DOMException TypeMismatchError (code 17) for invalid typed array argument types",
       "category": "implementation-gap",
       "expected": "fail"
     },

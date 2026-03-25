@@ -94,6 +94,19 @@ Bridge-provided randomness for global `crypto` APIs MUST delegate to host `node:
 - **WHEN** host `node:crypto` randomness primitives are unavailable or fail
 - **THEN** the bridge MUST throw a deterministic error matching the unsupported API format (`"<module>.<api> is not supported in sandbox"`) for the invoked randomness API and MUST NOT fall back to non-cryptographic randomness
 
+### Requirement: Global WebCrypto Surface Matches The `crypto.webcrypto` Bridge
+The bridge SHALL expose a single WebCrypto surface so global `crypto` APIs and `require('crypto').webcrypto` share the same object graph and constructor semantics.
+
+#### Scenario: Sandboxed code compares global and module WebCrypto objects
+- **WHEN** sandboxed code reads both `globalThis.crypto` and `require('crypto').webcrypto`
+- **THEN** those references MUST point at the same WebCrypto object
+- **AND** `crypto.subtle` MUST expose the same `SubtleCrypto` instance through both paths
+
+#### Scenario: WebCrypto constructors stay non-user-constructible
+- **WHEN** sandboxed code calls `new Crypto()`, `new SubtleCrypto()`, or `new CryptoKey()`
+- **THEN** the bridge MUST throw a Node-compatible illegal-constructor `TypeError`
+- **AND** prototype method receiver validation MUST reject detached calls with `ERR_INVALID_THIS`
+
 ### Requirement: Diffie-Hellman And ECDH Bridge Uses Host Node Crypto Objects
 Bridge-provided `crypto` Diffie-Hellman and ECDH APIs SHALL delegate to host `node:crypto` objects so constructor validation, session state, encodings, and shared-secret derivation match Node.js semantics.
 
