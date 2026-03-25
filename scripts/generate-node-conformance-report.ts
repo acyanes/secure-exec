@@ -233,6 +233,10 @@ const lines: string[] = [];
 function line(s = "") {
 	lines.push(s);
 }
+/** Escape curly braces for MDX (they're interpreted as JSX expressions). */
+function esc(s: string): string {
+	return s.replace(/\{/g, "\\{").replace(/\}/g, "\\}");
+}
 
 // Frontmatter
 line("---");
@@ -240,7 +244,6 @@ line("title: Node.js Conformance Report");
 line(
 	"description: Node.js v22 test/parallel/ conformance results for the secure-exec sandbox.",
 );
-line('icon: "chart-bar"');
 line("---");
 line();
 line(
@@ -348,23 +351,23 @@ for (const cat of categoryOrder) {
 		line("**Glob patterns:**");
 		line();
 		for (const { key, entry } of globs) {
-			line(`- \`${key}\` — ${entry.reason}`);
+			line(`- \`${key}\` — ${esc(entry.reason)}`);
 		}
 		line();
 	}
 
 	if (individual.length > 0 && individual.length <= 200) {
 		line(
-			`<details><summary>${individual.length} individual test${individual.length === 1 ? "" : "s"}</summary>`,
+			`<Accordion title="${individual.length} individual test${individual.length === 1 ? "" : "s"}">`,
 		);
 		line();
 		line("| Test | Reason |");
 		line("| --- | --- |");
 		for (const { key, entry } of individual) {
-			line(`| \`${key}\` | ${entry.reason} |`);
+			line(`| \`${key}\` | ${esc(entry.reason)} |`);
 		}
 		line();
-		line("</details>");
+		line("</Accordion>");
 		line();
 	} else if (individual.length > 200) {
 		line(

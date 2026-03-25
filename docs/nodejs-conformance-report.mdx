@@ -1,7 +1,6 @@
 ---
 title: Node.js Conformance Report
 description: Node.js v22 test/parallel/ conformance results for the secure-exec sandbox.
-icon: "chart-bar"
 ---
 
 {/* AUTO-GENERATED — do not edit. Run: pnpm tsx scripts/generate-node-conformance-report.ts */}
@@ -279,7 +278,7 @@ icon: "chart-bar"
 - `test-debugger-*.js` — debugger protocol requires inspector which is Tier 5 (Unsupported)
 - `test-quic-*.js` — QUIC protocol depends on tls which is Tier 4 (Deferred)
 
-<details><summary>179 individual tests</summary>
+<Accordion title="179 individual tests">
 
 | Test | Reason |
 | --- | --- |
@@ -463,7 +462,7 @@ icon: "chart-bar"
 | `test-buffer-resizable.js` | requires 'test' module (node:test) which is not available in sandbox |
 | `test-stream-consumers.js` | stream/consumers submodule not available in stream polyfill |
 
-</details>
+</Accordion>
 
 ### unsupported-api (79 entries)
 
@@ -473,7 +472,7 @@ icon: "chart-bar"
 - `test-shadow-*.js` — ShadowRealm is experimental and not supported in sandbox
 - `test-compile-*.js` — V8 compile cache/code cache features not available in sandbox
 
-<details><summary>76 individual tests</summary>
+<Accordion title="76 individual tests">
 
 | Test | Reason |
 | --- | --- |
@@ -489,14 +488,14 @@ icon: "chart-bar"
 | `test-fs-options-immutable.js` | hangs — fs.watch() with frozen options waits for events that never arrive (VFS has no inotify) |
 | `test-fs-promises-watch.js` | hangs — fs.promises.watch() waits forever for filesystem events (VFS has no watcher) |
 | `test-fs-watch-file-enoent-after-deletion.js` | hangs — fs.watchFile() waits for stat changes that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-add-file-to-existing-subfolder.js` | hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-add-file-to-new-folder.js` | hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-add-file.js` | hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-assert-leaks.js` | hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-delete.js` | hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify) |
-| `test-fs-watch-recursive-linux-parallel-remove.js` | hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify) |
+| `test-fs-watch-recursive-add-file-to-existing-subfolder.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
+| `test-fs-watch-recursive-add-file-to-new-folder.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
+| `test-fs-watch-recursive-add-file.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
+| `test-fs-watch-recursive-assert-leaks.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
+| `test-fs-watch-recursive-delete.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
+| `test-fs-watch-recursive-linux-parallel-remove.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
 | `test-fs-watch-recursive-sync-write.js` | hangs — fs.watch() with recursive option waits forever for events |
-| `test-fs-watch-recursive-update-file.js` | hangs — fs.watch({recursive}) waits for filesystem events that never arrive (VFS has no inotify) |
+| `test-fs-watch-recursive-update-file.js` | hangs — fs.watch(\{recursive\}) waits for filesystem events that never arrive (VFS has no inotify) |
 | `test-fs-watch-stop-async.js` | uses fs.watch/watchFile — inotify not available in VFS |
 | `test-fs-watch-stop-sync.js` | uses fs.watch/watchFile — inotify not available in VFS |
 | `test-fs-watch.js` | hangs — fs.watch() waits for filesystem events that never arrive (VFS has no inotify) |
@@ -544,7 +543,7 @@ icon: "chart-bar"
 | `test-util-types-exists.js` | require('util/types') subpath import not supported by sandbox module system |
 | `test-websocket.js` | WebSocket global is not defined in sandbox — Node.js 22 added WebSocket as a global but the sandbox does not expose it |
 | `test-webstream-readable-from.js` | ReadableStream.from() static method not implemented in sandbox WebStreams polyfill — added in Node.js 20 and not available globally in sandbox |
-| `test-webstreams-clone-unref.js` | structuredClone({ transfer: [stream] }) for ReadableStream/WritableStream not supported in sandbox — transferable stream structured clone not implemented |
+| `test-webstreams-clone-unref.js` | structuredClone(\{ transfer: [stream] \}) for ReadableStream/WritableStream not supported in sandbox — transferable stream structured clone not implemented |
 | `test-zlib-brotli-16GB.js` | getDefaultHighWaterMark() not exported from readable-stream v3 polyfill — test also relies on native zlib BrotliDecompress buffering behavior with _readableState internals |
 | `test-buffer-constructor-outside-node-modules.js` | ReferenceError: document is not defined — test uses browser DOM API not available in sandbox |
 | `test-child-process-fork.js` | child_process.fork is not supported in sandbox |
@@ -554,7 +553,7 @@ icon: "chart-bar"
 | `test-fs-watchfile-ref-unref.js` | fs.watchFile not supported in sandbox |
 | `test-fs-write-stream-file-handle-2.js` | fs.promises.open (FileHandle API) not implemented |
 
-</details>
+</Accordion>
 
 ### requires-v8-flags (239 entries)
 
@@ -566,7 +565,7 @@ icon: "chart-bar"
 
 - `test-permission-*.js` — spawns child Node.js process via process.execPath — sandbox does not provide a real node binary
 
-<details><summary>172 individual tests</summary>
+<Accordion title="172 individual tests">
 
 | Test | Reason |
 | --- | --- |
@@ -743,17 +742,17 @@ icon: "chart-bar"
 | `test-webstorage.js` | spawns child Node.js process via process.execPath — sandbox does not provide a real node binary |
 | `test-windows-failed-heap-allocation.js` | spawns child Node.js process via process.execPath — sandbox does not provide a real node binary |
 
-</details>
+</Accordion>
 
 ### security-constraint (1 entries)
 
-<details><summary>1 individual test</summary>
+<Accordion title="1 individual test">
 
 | Test | Reason |
 | --- | --- |
 | `test-process-binding-internalbinding-allowlist.js` | process.binding is not supported in sandbox (security constraint) |
 
-</details>
+</Accordion>
 
 ### test-infra (22 entries)
 
@@ -762,7 +761,7 @@ icon: "chart-bar"
 - `test-runner-*.js` — Node.js test runner infrastructure — not runtime behavior
 - `test-eslint-*.js` — ESLint integration tests — Node.js CI tooling, not runtime
 
-<details><summary>20 individual tests</summary>
+<Accordion title="20 individual tests">
 
 | Test | Reason |
 | --- | --- |
@@ -787,11 +786,11 @@ icon: "chart-bar"
 | `test-worker-messaging-errors-handler.js` | passes in sandbox — overrides glob pattern |
 | `test-worker-messaging-errors-invalid.js` | passes in sandbox — overrides glob pattern |
 
-</details>
+</Accordion>
 
 ### native-addon (3 entries)
 
-<details><summary>3 individual tests</summary>
+<Accordion title="3 individual tests">
 
 | Test | Reason |
 | --- | --- |
@@ -799,11 +798,11 @@ icon: "chart-bar"
 | `test-internal-process-binding.js` | uses process.binding() or native addons — not available in sandbox |
 | `test-process-binding-util.js` | uses process.binding() or native addons — not available in sandbox |
 
-</details>
+</Accordion>
 
 ### vacuous-skip (34 entries)
 
-<details><summary>34 individual tests</summary>
+<Accordion title="34 individual tests">
 
 | Test | Reason |
 | --- | --- |
@@ -842,4 +841,4 @@ icon: "chart-bar"
 | `test-fs-utimes-y2K38.js` | vacuous pass — test self-skips because child_process.spawnSync(touch) fails in sandbox |
 | `test-tick-processor-arguments.js` | vacuous pass — test self-skips because common.enoughTestMem is undefined in sandbox shim |
 
-</details>
+</Accordion>

@@ -60,20 +60,24 @@
           "features/typescript",
           "features/permissions",
           "features/filesystem",
-          "features/virtual-filesystem",
           "features/networking",
           "features/module-loading",
           "features/output-capture",
           "features/resource-limits",
           "features/child-processes",
-          "process-isolation"
+          "features/virtual-filesystem",
+		  {
+			  "group": "Advanced",
+			  "pages": [
+				  "features/process-isolation"
+			  ]
+		  }
         ]
       },
       {
         "group": "Reference",
         "pages": [
           "api-reference",
-          "nodejs-compatibility",
           "benchmarks",
 		  {
 			"group": "Comparison",
@@ -85,6 +89,10 @@
 		  {
 			"group": "Advanced",
 			"pages": [
+			  "nodejs-compatibility",
+			  "nodejs-conformance-report",
+			  "posix-compatibility",
+			  "posix-conformance-report",
 			  "cost-evaluation",
 			  "architecture",
 			  "security-model"
