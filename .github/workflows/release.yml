@@ -123,11 +123,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Type check
-        run: pnpm turbo check-types
-
       - name: Build
         run: pnpm turbo build
+
+      - name: Type check
+        run: pnpm turbo check-types
 
       # Download all V8 platform binaries into their npm package dirs
       - name: Download V8 binaries
