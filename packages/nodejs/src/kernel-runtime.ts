@@ -352,6 +352,16 @@ class NodeRuntimeDriver implements RuntimeDriver {
         resolve(code);
       };
     });
+    let killedSignal: number | null = null;
+    let killExitReported = false;
+
+    const reportKilledExit = (signal: number) => {
+      if (killExitReported) return;
+      killExitReported = true;
+      const exitCode = 128 + signal;
+      resolveExit(exitCode);
+      proc.onExit?.(exitCode);
+    };
 
     // Stdin buffering — writeStdin collects data, closeStdin resolves the promise
     const stdinChunks: Uint8Array[] = [];
@@ -390,18 +400,31 @@ class NodeRuntimeDriver implements RuntimeDriver {
           stdinResolve = null;
         }
       },
-      kill: (_signal: number) => {
+      kill: (signal: number) => {
+        if (exitResolved) return;
+        const normalizedSignal = signal > 0 ? signal : 15;
+        killedSignal = normalizedSignal;
         const driver = this._activeDrivers.get(ctx.pid);
-        if (driver) {
-          driver.dispose();
-          this._activeDrivers.delete(ctx.pid);
+        if (!driver) {
+          reportKilledExit(normalizedSignal);
+          return;
         }
+        this._activeDrivers.delete(ctx.pid);
+        void driver
+          .terminate()
+          .catch(() => {
+            // Best effort: disposal still clears local resource tracking.
+            driver.dispose();
+          })
+          .finally(() => {
+            reportKilledExit(normalizedSignal);
+          });
       },
       wait: () => exitPromise,
     };
 
     // Launch async — spawn() returns synchronously per RuntimeDriver contract
-    this._executeAsync(command, args, ctx, proc, resolveExit, stdinPromise);
+    this._executeAsync(command, args, ctx, proc, resolveExit, stdinPromise, () => killedSignal);
 
     return proc;
   }
@@ -425,6 +448,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
     proc: DriverProcess,
     resolveExit: (code: number) => void,
     stdinPromise: Promise<string | undefined>,
+    getKilledSignal: () => number | null,
   ): Promise<void> {
     const kernel = this._kernel!;
 
@@ -434,6 +458,9 @@ class NodeRuntimeDriver implements RuntimeDriver {
 
       // Wait for stdin data (resolves immediately if no writeStdin called)
       const stdinData = await stdinPromise;
+      if (getKilledSignal() !== null) {
+        return;
+      }
 
       // Build kernel-backed system driver
       const commandExecutor = createKernelCommandExecutor(kernel, ctx.pid);
@@ -491,6 +518,16 @@ class NodeRuntimeDriver implements RuntimeDriver {
         pid: ctx.pid,
       });
       this._activeDrivers.set(ctx.pid, executionDriver);
+      const killedSignal = getKilledSignal();
+      if (killedSignal !== null) {
+        this._activeDrivers.delete(ctx.pid);
+        try {
+          await executionDriver.terminate();
+        } catch {
+          executionDriver.dispose();
+        }
+        return;
+      }
 
       // Execute with stdout/stderr capture and stdin data
       const result = await executionDriver.exec(code, {

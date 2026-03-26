@@ -749,7 +749,7 @@
         "Typecheck passes"
       ],
       "priority": 32,
-      "passes": false,
+      "passes": true,
       "notes": "US-036 from the previous PRD was marked done, but the signature cross-runtime proof test is currently red."
     },
     {

@@ -3886,8 +3886,17 @@ export interface NetworkBridgeResult {
 /** Restrict HTTP server hostname to loopback interfaces. */
 function normalizeLoopbackHostname(hostname?: string): string {
 	if (!hostname || hostname === "localhost") return "127.0.0.1";
-	if (hostname === "127.0.0.1" || hostname === "::1") return hostname;
-	if (hostname === "0.0.0.0" || hostname === "::") return "127.0.0.1";
+	// Preserve wildcard binds so kernel listener lookup and server.address()
+	// reflect the caller's requested address while loopback connects still
+	// resolve through SocketTable wildcard matching.
+	if (
+		hostname === "127.0.0.1" ||
+		hostname === "::1" ||
+		hostname === "0.0.0.0" ||
+		hostname === "::"
+	) {
+		return hostname;
+	}
 	throw new Error(
 		`Sandbox HTTP servers are restricted to loopback interfaces. Received hostname: ${hostname}`,
 	);

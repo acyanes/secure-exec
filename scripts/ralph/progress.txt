@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Kernel-mounted runtime drivers must make `DriverProcess.kill()` settle `wait()` / `onExit`; clearing timers, servers, or other runtime resources without resolving process completion leaves kernel `spawn()` callers hung.
 - Vendored `http2` validation/error fixtures sometimes build their expected error text with the sandbox's own `util.inspect()`, so inspect parity bugs can masquerade as bridge-validation regressions
 - Synthetic bridged `http2` server-stream errors should mark the stream as already closing before userland `'error'` listeners run; vendored handlers often call `stream.destroy()` again inside that same error event
 - Vendored `http2` nghttp2 error-path tests patch `internal/test/binding` `Http2Stream.prototype.respond`, so the internal binding shim and `internal/http2/util`.`NghttpError` must share the exact bridge-facing constructors the runtime uses or the vendored mocks stop exercising real wrapper logic
@@ -472,4 +473,13 @@
   - `respondWithFile()` validation snapshots in vendored tests build their expected strings with the sandbox’s current `util.inspect` behavior, so these error messages can still drift even after the HTTP/2 control-flow logic is correct.
   - A single broad `node/http2` fail glob masks promoted file-response fixtures cleanly, but exact `runner.test.ts -t <file>` reruns are still the fastest way to tell which individual vendored files are genuinely ready for explicit `pass` overrides.
   - Host-backed abort and push/file-response parity are separate from the new VFS/file-range fixes; keep `process.execPath` abort coverage, push-stream teardown, and nghttp2 mocked error-path teardown as follow-up slices instead of assuming the shared file helper fixes them automatically.
+---
+## [2026-03-26 08:49 PDT] - US-032
+- Fixed the cross-runtime kernel proof path by preserving wildcard HTTP/HTTP2 bind addresses in the Node bridge so `listen(..., "0.0.0.0")` registers a wildcard listener in `kernel.socketTable`, and by making the kernel-mounted Node runtime settle `wait()`/`onExit` when `DriverProcess.kill()` is used for long-lived server processes.
+- Verified the end-to-end proof and nearby regressions with `pnpm exec vitest run packages/secure-exec/tests/kernel/cross-runtime-network.test.ts`, `pnpm exec vitest run packages/secure-exec/tests/runtime-driver/node/ssrf-protection.test.ts -t 'sandbox listeners on 0.0.0.0 remain reachable via loopback'`, `pnpm exec vitest run packages/secure-exec/tests/kernel/signal-forwarding.test.ts -t 'Node process can be killed via SIGTERM'`, and `pnpm --filter secure-exec check-types`.
+- Files changed: `AGENTS.md`, `packages/nodejs/src/bridge-handlers.ts`, `packages/nodejs/src/kernel-runtime.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - The cross-runtime HTTP proof depends on kernel-visible wildcard listener state, not just successful loopback delivery; collapsing `0.0.0.0` to `127.0.0.1` in the Node HTTP bridge hides the listener from `kernel.socketTable` and breaks the proof story.
+  - The Node kernel runtime already had signal-forwarding coverage, but the failing cross-runtime test exposed a separate `DriverProcess.kill()` gap: terminating runtime resources without settling the process exit promise leaves `kernel.spawn(...).wait()` hanging.
+  - When a kernel proof test times out during cleanup, a quick `pnpm tsx` repro that races `proc.wait()` against a timeout is the fastest way to distinguish request-path success from a stuck kill/wait contract.
 ---
