@@ -1037,7 +1037,7 @@
         "Typecheck passes"
       ],
       "priority": 49,
-      "passes": false,
+      "passes": true,
       "notes": "Reference: docs-internal/posix-gaps-audit.md. Keep the kernel transport semantics separate from later wasi-ext/C wiring."
     },
     {

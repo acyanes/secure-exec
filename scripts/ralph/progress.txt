@@ -1,5 +1,6 @@
 ## Codebase Patterns
 - `AF_UNIX` sockets are local IPC, not host networking: kernel `SocketTable` bind/listen/connect for path sockets must stay fully in-kernel, bypass `permissions.network`, and use only the listener registry plus VFS socket-file state.
+- Host-backed UDP verification should include a real `packages/secure-exec/tests/kernel/` case with `createKernel()`, `createNodeHostNetworkAdapter()`, and real `node:dgram` peers; socket-table unit tests only cover transport helpers, and host-visible UDP unit tests still need an explicit `networkCheck` fixture.
 - When kernel/device code needs a special file type in the browser-facing `InMemoryFileSystem`, `packages/browser/src/os-filesystem.ts` `chmod()` must honor caller-supplied type bits like `S_IFSOCK`; preserving the old file type silently downgrades socket files back to regular files.
 - Kernel integration tests that need deferred-unlink or inode-lifetime semantics must build the kernel with `InMemoryFileSystem` and await `posixDirsReady`; the default `createTestKernel()` `TestFileSystem` does not exercise inode-backed FD lifetime behavior.
 - `packages/core/src/shared/in-memory-fs.ts` must keep POSIX directory metadata coherent end-to-end: directory `nlink` is `2 + immediate child directory count`, `readDir*()` synthesizes `.`/`..`, and symlink `lstat()` / typed readdir entries should report the symlink's own inode instead of `ino: 0`.
@@ -667,4 +668,14 @@
   - Listening sockets need their own readiness signal: `socketTable.poll()` must treat a non-empty accept backlog as readable, not just rely on per-connection `readBuffer` state.
   - Listener teardown has to own the queued backlog too; otherwise closing a server leaks orphaned server-side sockets that are no longer reachable through `accept()`.
   - `packages/core/test/kernel/socket-table.test.ts` should opt into an explicit allow-all `networkCheck` whenever it exercises `listen()`-based behavior, because deny-by-default networking is now part of the default `SocketTable` fixture.
+---
+## [2026-03-26 12:22 PDT] - US-049
+- Added explicit kernel UDP contract coverage for datagram boundaries, source-address reporting, silent-drop semantics, and host-adapter routing in `.agent/contracts/kernel.md`.
+- Fixed the stale external UDP socket-table tests to opt into deny-by-default network permission checks, and added a real-kernel integration suite at `packages/secure-exec/tests/kernel/udp-socket-behavior.test.ts` that verifies loopback `sendTo`/`recvFrom` plus host-backed UDP exchange against real `node:dgram` sockets through `createNodeHostNetworkAdapter()`.
+- Verified with `pnpm vitest run packages/core/test/kernel/udp-socket.test.ts packages/secure-exec/tests/kernel/udp-socket-behavior.test.ts`, `pnpm --filter @secure-exec/core check-types`, and `pnpm --filter secure-exec check-types`.
+- Files changed: `.agent/contracts/kernel.md`, `CLAUDE.md`, `packages/core/test/kernel/udp-socket.test.ts`, `packages/secure-exec/tests/kernel/udp-socket-behavior.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Host-backed UDP unit tests must supply `networkCheck`; `bindExternalUdp()` now correctly fails closed with `EACCES` when no permission policy is configured.
+  - The right proof point for kernel UDP transport is a real `createKernel()` instance with process-table-owned sockets and real `node:dgram` peers, not only standalone `SocketTable` coverage or WasmVM-only fixtures.
+  - Binding kernel UDP sockets to `127.0.0.1:0` works for host-backed tests because `SocketTable.bind()` assigns a kernel ephemeral port first, and `bindExternalUdp()` reuses that concrete port for the host adapter.
 ---

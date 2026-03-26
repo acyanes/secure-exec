@@ -71,6 +71,13 @@ class MockHostNetworkAdapter implements HostNetworkAdapter {
 	async dnsLookup(): Promise<DnsResult> { throw new Error("not implemented"); }
 }
 
+function createExternalUdpSocketTable(hostAdapter?: HostNetworkAdapter) {
+	return new SocketTable({
+		hostAdapter,
+		networkCheck: () => ({ allow: true }),
+	});
+}
+
 // ---------------------------------------------------------------------------
 // Helper: create a SocketTable with a bound UDP socket
 // ---------------------------------------------------------------------------
@@ -399,7 +406,7 @@ describe("UDP sockets (SOCK_DGRAM)", () => {
 
 	it("bindExternalUdp creates host UDP socket and starts recv pump", async () => {
 		const mockAdapter = new MockHostNetworkAdapter();
-		const table = new SocketTable({ hostAdapter: mockAdapter });
+		const table = createExternalUdpSocketTable(mockAdapter);
 
 		const id = table.create(AF_INET, SOCK_DGRAM, 0, 1);
 		await table.bind(id, { host: "0.0.0.0", port: 5000 });
@@ -412,7 +419,7 @@ describe("UDP sockets (SOCK_DGRAM)", () => {
 
 	it("external recv pump feeds datagrams into kernel queue", async () => {
 		const mockAdapter = new MockHostNetworkAdapter();
-		const table = new SocketTable({ hostAdapter: mockAdapter });
+		const table = createExternalUdpSocketTable(mockAdapter);
 
 		const id = table.create(AF_INET, SOCK_DGRAM, 0, 1);
 		await table.bind(id, { host: "0.0.0.0", port: 5000 });
@@ -435,7 +442,7 @@ describe("UDP sockets (SOCK_DGRAM)", () => {
 
 	it("sendTo external routes through host adapter udpSend", async () => {
 		const mockAdapter = new MockHostNetworkAdapter();
-		const table = new SocketTable({ hostAdapter: mockAdapter });
+		const table = createExternalUdpSocketTable(mockAdapter);
 
 		const id = table.create(AF_INET, SOCK_DGRAM, 0, 1);
 		await table.bind(id, { host: "0.0.0.0", port: 5000 });
@@ -452,7 +459,7 @@ describe("UDP sockets (SOCK_DGRAM)", () => {
 
 	it("close external UDP socket calls hostUdpSocket.close()", async () => {
 		const mockAdapter = new MockHostNetworkAdapter();
-		const table = new SocketTable({ hostAdapter: mockAdapter });
+		const table = createExternalUdpSocketTable(mockAdapter);
 
 		const id = table.create(AF_INET, SOCK_DGRAM, 0, 1);
 		await table.bind(id, { host: "0.0.0.0", port: 5000 });

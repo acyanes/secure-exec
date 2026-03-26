@@ -432,6 +432,29 @@ The kernel socket table SHALL reserve listener ports deterministically for loopb
 - **WHEN** a listening socket is closed while its accept backlog still contains pending server-side sockets
 - **THEN** the kernel MUST close those queued sockets as part of listener teardown so detached connections do not remain reachable without a listener owner
 
+### Requirement: UDP Datagram Transport Preserves Message Boundaries And Source Addresses
+The kernel socket table SHALL model UDP as connectionless datagram delivery, preserving one-send-to-one-recv boundaries and reporting the sender address for each datagram.
+
+#### Scenario: sendTo delivers one datagram to recvFrom with source address metadata
+- **WHEN** a bound UDP socket calls `sendTo()` to another kernel-bound UDP socket
+- **THEN** the destination socket MUST queue exactly one datagram for `recvFrom()`
+- **AND** `recvFrom()` MUST return the sender's address in `srcAddr`
+
+#### Scenario: recvFrom truncates oversized datagrams without leaking the remainder
+- **WHEN** a queued UDP datagram exceeds the caller's `maxBytes`
+- **THEN** `recvFrom()` MUST return only the leading `maxBytes`
+- **AND** the excess bytes MUST be discarded instead of surfacing as a second datagram
+
+#### Scenario: unbound UDP destinations drop silently
+- **WHEN** `sendTo()` targets an address with no kernel-bound UDP socket and no host-backed UDP route
+- **THEN** the kernel MUST report the datagram length as written
+- **AND** the datagram MUST be dropped silently instead of raising `ECONNREFUSED`
+
+#### Scenario: host-backed UDP sockets route through the host adapter
+- **WHEN** a bound UDP socket is attached to an external host-backed transport and sends or receives external datagrams
+- **THEN** the kernel MUST delegate outbound sends through the configured host adapter
+- **AND** inbound host datagrams MUST be surfaced via `recvFrom()` with the host sender address preserved
+
 ### Requirement: Kernel Socket Ownership Matches the Process Table
 The kernel socket table SHALL only allocate process-owned sockets for PIDs that are currently registered in the kernel process table when the table is kernel-mediated.
 
