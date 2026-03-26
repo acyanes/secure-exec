@@ -1603,7 +1603,7 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			const proc = kernel.spawn("cmd", []);
 			// FD operations work while process is running
-			const fd = ki.fdOpen(proc.pid, "/tmp/test", 0x201); // O_CREAT | O_WRONLY
+			const fd = ki.fdOpen(proc.pid, "/tmp/test", O_CREAT | O_WRONLY);
 			expect(fd).toBeGreaterThanOrEqual(3);
 
 			await proc.wait();

@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- `packages/core/src/shared/in-memory-fs.ts` must keep POSIX directory metadata coherent end-to-end: directory `nlink` is `2 + immediate child directory count`, `readDir*()` synthesizes `.`/`..`, and symlink `lstat()` / typed readdir entries should report the symlink's own inode instead of `ino: 0`.
 - Tests that instantiate `createDefaultNetworkAdapter()` or `useDefaultNetwork` are legacy adapter compatibility coverage only; kernel-consolidation proof should live under `packages/secure-exec/tests/kernel/` and mount `createNodeRuntime()` into a real `Kernel`.
 - Story-critical Wasm C integration suites should keep local `skipIf` guards for missing binaries, but pair them with separate CI-only artifact-availability tests so missing `native/wasmvm/c/build/*` fixtures fail loudly instead of disappearing behind skips.
 - Reserve `category: "vacuous-skip"` for `expected: "pass"` self-skips only; if a vendored file remains `expected: "skip"` because behavior is still broken, keep a real failure category like `implementation-gap` so conformance category totals stay honest.
@@ -600,4 +601,14 @@
   - A `packages/nodejs/test/` suite can still be valuable after kernel consolidation, but if it constructs `createDefaultNetworkAdapter()` it should be labeled as legacy compatibility and not reused as migration proof.
   - For kernel-backed verification, a tracked `HostNetworkAdapter` wrapper is a simple way to prove loopback traffic stayed inside the kernel path: external listener exposure should increment `tcpListen`, while same-kernel loopback clients should leave `tcpConnect` at `0`.
   - Explicit `process.exit()` inside kernel-mounted Node test snippets can surface `ProcessExitError` on stderr; for proof-style integration tests it is cleaner to close the last server/socket handle and let the process exit naturally.
+---
+## [2026-03-26 11:37 PDT] - US-043
+- Implemented POSIX-style directory metadata in `InMemoryFileSystem`, so directory `nlink` now tracks parent/self semantics and immediate child directories, and empty directory removal decrements parent link counts correctly.
+- Replaced synthetic symlink metadata with inode-backed symlink `lstat()` and typed `readdir` entries, added kernel integration coverage for directory link-count deltas and symlink inode stability, and fixed a stale magic-number `fdOpen` flag in the kernel integration suite.
+- Files changed: `.agent/contracts/kernel.md`, `CLAUDE.md`, `packages/core/src/shared/in-memory-fs.ts`, `packages/core/test/kernel/inode-table.test.ts`, `packages/core/test/kernel/kernel-integration.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Kernel-backed VFS tests run under a prebuilt POSIX directory tree, so assertions about `/` or `/tmp` link counts should compare against a baseline delta instead of assuming an empty filesystem.
+  - In `InMemoryFileSystem`, directory creation/removal semantics are coupled: creating a directory must increment the parent inode's `nlink`, and removing an empty directory must drop both the child directory's own links and the parent's child-directory link.
+  - Symlink metadata should stay inode-backed, not synthesized ad hoc, so `lstat()` and `readDirWithTypes()` report the same stable inode identity for the link itself.
+  - Kernel integration tests should use exported open-flag constants instead of magic literals; stale numeric masks can silently stop testing the intended `O_CREAT`/`O_TRUNC` path.
 ---

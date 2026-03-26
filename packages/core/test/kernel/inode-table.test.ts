@@ -282,6 +282,60 @@ describe("InodeTable integration", () => {
 		expect(alias.nlink).toBe(2);
 	});
 
+	it("directories track POSIX nlink counts for parent and child entries", async () => {
+		const { filesystem } = await createKernelHarness();
+		const rootBefore = await filesystem.stat("/");
+		const tmpBefore = await filesystem.stat("/tmp");
+
+		await filesystem.mkdir("/tmp/child");
+
+		const root = await filesystem.stat("/");
+		const tmp = await filesystem.stat("/tmp");
+		const child = await filesystem.stat("/tmp/child");
+
+		expect(root.ino).toBeGreaterThan(0);
+		expect(tmp.ino).toBeGreaterThan(0);
+		expect(child.ino).toBeGreaterThan(0);
+		expect(new Set([root.ino, tmp.ino, child.ino]).size).toBe(3);
+		expect(root.nlink).toBe(rootBefore.nlink);
+		expect(tmp.nlink).toBe(tmpBefore.nlink + 1);
+		expect(child.nlink).toBe(2);
+	});
+
+	it("removing an empty directory decrements the parent nlink", async () => {
+		const { filesystem } = await createKernelHarness();
+		const tmpBefore = await filesystem.stat("/tmp");
+
+		await filesystem.mkdir("/tmp/child");
+		await filesystem.removeDir("/tmp/child");
+
+		await expect(filesystem.exists("/tmp/child")).resolves.toBe(false);
+		await expect(filesystem.stat("/tmp")).resolves.toMatchObject({
+			nlink: tmpBefore.nlink,
+		});
+	});
+
+	it("symlink lstat and readdirWithTypes expose a stable inode", async () => {
+		const { filesystem } = await createKernelHarness();
+
+		await filesystem.writeFile("/tmp/target.txt", "hello");
+		await filesystem.symlink("/tmp/target.txt", "/tmp/link.txt");
+
+		const stat = await filesystem.lstat("/tmp/link.txt");
+		const entry = (await filesystem.readDirWithTypes("/tmp")).find((dirent) =>
+			dirent.name === "link.txt"
+		);
+
+		expect(stat.isSymbolicLink).toBe(true);
+		expect(stat.ino).toBeGreaterThan(0);
+		expect(entry).toMatchObject({
+			name: "link.txt",
+			isDirectory: false,
+			isSymbolicLink: true,
+			ino: stat.ino,
+		});
+	});
+
 	it("readDir includes '.' and '..' before real entries", async () => {
 		const { filesystem } = await createKernelHarness();
 

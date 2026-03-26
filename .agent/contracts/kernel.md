@@ -60,6 +60,10 @@ The kernel VFS SHALL provide a POSIX-like filesystem interface with consistent e
 - **WHEN** two directory entries refer to the same file through `link(oldPath, newPath)`
 - **THEN** `stat(oldPath).ino` and `stat(newPath).ino` MUST be identical until the inode is deleted
 
+#### Scenario: directory nlink reflects self, parent, and child directories
+- **WHEN** the InMemoryFileSystem creates or removes directories
+- **THEN** each directory MUST report POSIX-style `nlink` metadata: `2` for an empty directory, `2 + childDirectoryCount` for non-root directories, and root `nlink` MUST increase for each immediate child directory
+
 #### Scenario: readDirWithTypes returns entries with type information
 - **WHEN** a caller invokes `readDirWithTypes(path)` on a directory containing files and subdirectories
 - **THEN** the VFS MUST return `VirtualDirEntry[]` where each entry has `name`, `isDirectory`, and `isSymbolicLink` fields

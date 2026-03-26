@@ -42,7 +42,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 	private files = new Map<string, number>();
 	private fileContents = new Map<number, Uint8Array>();
 	private dirs = new Map<string, number>();
-	private symlinks = new Map<string, string>();
+	private symlinks = new Map<string, { target: string; ino: number }>();
 
 	constructor(inodeTable: InodeTable = new InodeTable()) {
 		this.inodeTable = inodeTable;
@@ -144,7 +144,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 			}
 		}
 
-		for (const linkPath of this.symlinks.keys()) {
+		for (const [linkPath, link] of this.symlinks.entries()) {
 			if (!linkPath.startsWith(prefix)) continue;
 			const rest = linkPath.slice(prefix.length);
 			if (rest && !rest.includes("/")) {
@@ -152,7 +152,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 					name: rest,
 					isDirectory: false,
 					isSymbolicLink: true,
-					ino: 0,
+					ino: link.ino,
 				});
 			}
 		}
@@ -221,9 +221,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 			let current = "";
 			for (const part of parts) {
 				current += `/${part}`;
-				if (!this.dirs.has(current)) {
-					this.dirs.set(current, this.allocateDirectoryInode().ino);
-				}
+				this.ensureDirectory(current);
 			}
 
 			const inode = this.allocateFileInode();
@@ -254,9 +252,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		if (!this.dirs.has(parent)) {
 			throw new Error(`ENOENT: no such file or directory, mkdir '${normalized}'`);
 		}
-		if (!this.dirs.has(normalized)) {
-			this.dirs.set(normalized, this.allocateDirectoryInode().ino);
-		}
+		this.ensureDirectory(normalized);
 	}
 
 	async mkdir(path: string, _options?: { recursive?: boolean }): Promise<void> {
@@ -264,9 +260,7 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		let current = "";
 		for (const part of parts) {
 			current += `/${part}`;
-			if (!this.dirs.has(current)) {
-				this.dirs.set(current, this.allocateDirectoryInode().ino);
-			}
+			this.ensureDirectory(current);
 		}
 	}
 
@@ -277,11 +271,11 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 	private resolveSymlink(normalized: string, maxDepth = 16): string {
 		let current = normalized;
 		for (let i = 0; i < maxDepth; i++) {
-			const target = this.symlinks.get(current);
-			if (!target) return current;
-			current = target.startsWith("/")
-				? normalizePath(target)
-				: normalizePath(`${dirname(current)}/${target}`);
+			const link = this.symlinks.get(current);
+			if (!link) return current;
+			current = link.target.startsWith("/")
+				? normalizePath(link.target)
+				: normalizePath(`${dirname(current)}/${link.target}`);
 		}
 		throw new Error(
 			`ELOOP: too many levels of symbolic links, stat '${normalized}'`,
@@ -290,11 +284,12 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 
 	private statForInode(inode: Inode): VirtualStat {
 		const isDirectory = (inode.mode & 0o170000) === S_IFDIR;
+		const isSymbolicLink = (inode.mode & 0o170000) === S_IFLNK;
 		return {
 			mode: inode.mode,
 			size: isDirectory ? 4096 : inode.size,
 			isDirectory,
-			isSymbolicLink: false,
+			isSymbolicLink,
 			atimeMs: inode.atime.getTime(),
 			mtimeMs: inode.mtime.getTime(),
 			ctimeMs: inode.ctime.getTime(),
@@ -341,7 +336,13 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 
 	async removeFile(path: string): Promise<void> {
 		const normalized = normalizePath(path);
-		if (this.symlinks.delete(normalized)) {
+		const symlink = this.symlinks.get(normalized);
+		if (symlink) {
+			this.symlinks.delete(normalized);
+			this.inodeTable.decrementLinks(symlink.ino);
+			if (this.inodeTable.shouldDelete(symlink.ino)) {
+				this.inodeTable.delete(symlink.ino);
+			}
 			return;
 		}
 		const resolved = this.resolveSymlink(normalized);
@@ -386,6 +387,8 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 		const ino = this.dirs.get(normalized)!;
 		this.dirs.delete(normalized);
 		this.inodeTable.decrementLinks(ino);
+		this.inodeTable.decrementLinks(ino);
+		this.adjustParentDirectoryLinkCount(normalized, -1);
 		if (this.inodeTable.shouldDelete(ino)) {
 			this.inodeTable.delete(ino);
 		}
@@ -496,6 +499,11 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 				target,
 			);
 		}
+
+		if (dirname(oldNormalized) !== dirname(newNormalized)) {
+			this.adjustParentDirectoryLinkCount(oldNormalized, -1);
+			this.adjustParentDirectoryLinkCount(newNormalized, 1);
+		}
 	}
 
 	async symlink(target: string, linkPath: string): Promise<void> {
@@ -510,37 +518,24 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 			);
 		}
 		await this.mkdir(dirname(normalized));
-		this.symlinks.set(normalized, target);
+		const inode = this.allocateSymlinkInode(target);
+		this.symlinks.set(normalized, { target, ino: inode.ino });
 	}
 
 	async readlink(path: string): Promise<string> {
 		const normalized = normalizePath(path);
-		const target = this.symlinks.get(normalized);
-		if (target === undefined) {
+		const link = this.symlinks.get(normalized);
+		if (link === undefined) {
 			throw new Error(`EINVAL: invalid argument, readlink '${normalized}'`);
 		}
-		return target;
+		return link.target;
 	}
 
 	async lstat(path: string): Promise<VirtualStat> {
 		const normalized = normalizePath(path);
-		const target = this.symlinks.get(normalized);
-		if (target !== undefined) {
-			const now = Date.now();
-			return {
-				mode: S_IFLNK | 0o777,
-				size: new TextEncoder().encode(target).byteLength,
-				isDirectory: false,
-				isSymbolicLink: true,
-				atimeMs: now,
-				mtimeMs: now,
-				ctimeMs: now,
-				birthtimeMs: now,
-				ino: 0,
-				nlink: 1,
-				uid: 0,
-				gid: 0,
-			};
+		const link = this.symlinks.get(normalized);
+		if (link !== undefined) {
+			return this.statForInode(this.requireInode(link.ino));
 		}
 		return this.statEntry(normalized);
 	}
@@ -637,12 +632,14 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 	private reindexInodes(oldTable: InodeTable): void {
 		const oldContents = new Map(this.fileContents);
 		const oldFiles = new Map(this.files);
+		const oldSymlinks = new Map(this.symlinks);
 		const oldDirs = Array.from(this.dirs.entries()).sort(([a], [b]) => a.length - b.length);
 		const inoMap = new Map<number, number>();
 
 		this.files = new Map();
 		this.fileContents = new Map();
 		this.dirs = new Map();
+		this.symlinks = new Map();
 
 		for (const [dirPath, oldIno] of oldDirs) {
 			const ino = this.cloneInode(oldIno, oldTable, S_IFDIR | 0o755).ino;
@@ -665,6 +662,12 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 				this.fileContents.set(mapped, content);
 				this.requireInode(mapped).size = content.byteLength;
 			}
+		}
+
+		for (const [path, link] of oldSymlinks) {
+			const mapped = this.cloneInode(link.ino, oldTable, S_IFLNK | 0o777).ino;
+			this.symlinks.set(path, { target: link.target, ino: mapped });
+			this.requireInode(mapped).size = new TextEncoder().encode(link.target).byteLength;
 		}
 	}
 
@@ -695,7 +698,14 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 
 	private allocateDirectoryInode(): Inode {
 		const inode = this.inodeTable.allocate(S_IFDIR | 0o755, 0, 0);
+		inode.nlink = 2;
 		inode.size = 4096;
+		return inode;
+	}
+
+	private allocateSymlinkInode(target: string): Inode {
+		const inode = this.inodeTable.allocate(S_IFLNK | 0o777, 0, 0);
+		inode.size = new TextEncoder().encode(target).byteLength;
 		return inode;
 	}
 
@@ -732,6 +742,32 @@ export class InMemoryFileSystem implements VirtualFileSystem {
 			throw new Error(`ENOENT: inode ${ino} not found`);
 		}
 		return inode;
+	}
+
+	private ensureDirectory(path: string): void {
+		const normalized = normalizePath(path);
+		if (normalized === "/") return;
+		if (this.dirs.has(normalized)) return;
+		const parent = dirname(normalized);
+		if (!this.dirs.has(parent)) {
+			throw new Error(`ENOENT: no such file or directory, mkdir '${normalized}'`);
+		}
+
+		this.dirs.set(normalized, this.allocateDirectoryInode().ino);
+		this.adjustParentDirectoryLinkCount(normalized, 1);
+	}
+
+	private adjustParentDirectoryLinkCount(path: string, delta: 1 | -1): void {
+		const normalized = normalizePath(path);
+		if (normalized === "/") return;
+		const parent = dirname(normalized);
+		const parentIno = this.dirs.get(parent);
+		if (parentIno === undefined) return;
+		if (delta > 0) {
+			this.inodeTable.incrementLinks(parentIno);
+		} else {
+			this.inodeTable.decrementLinks(parentIno);
+		}
 	}
 }
 
