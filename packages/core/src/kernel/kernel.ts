@@ -129,6 +129,7 @@ class KernelImpl implements Kernel {
 			networkCheck: options.permissions?.network,
 			hostAdapter: options.hostNetworkAdapter,
 			getSignalState: (pid) => this.processTable.getSignalState(pid),
+			processExists: (pid) => this.processTable.get(pid) !== undefined,
 		});
 		this.timerTable = new TimerTable();
 

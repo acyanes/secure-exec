@@ -394,6 +394,18 @@ The kernel socket table SHALL reserve listener ports deterministically for loopb
 - **WHEN** a loopback `connect()` targets a listening socket whose pending backlog already reached the configured `listen(backlog)` capacity
 - **THEN** the connection MUST fail with `ECONNREFUSED` instead of growing the backlog without bound
 
+### Requirement: Kernel Socket Ownership Matches the Process Table
+The kernel socket table SHALL only allocate process-owned sockets for PIDs that are currently registered in the kernel process table when the table is kernel-mediated.
+
+#### Scenario: create rejects unknown owner PID in kernel mode
+- **WHEN** `createKernel()` provisions the shared `SocketTable` and a caller attempts `socketTable.create(..., pid)` for a PID that is not present in the process table
+- **THEN** socket creation MUST fail with `ESRCH`
+
+#### Scenario: process exit cleanup closes only that PID's sockets
+- **WHEN** a registered process exits and the kernel runs process-exit cleanup
+- **THEN** the socket table MUST close all sockets owned by that PID
+- **AND** sockets owned by other still-registered PIDs MUST remain available
+
 ### Requirement: Command Registry Resolution and /bin Population
 The kernel command registry SHALL map command names to runtime drivers and populate `/bin` stubs for shell PATH-based resolution.
 

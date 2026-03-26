@@ -5167,26 +5167,33 @@ describe("kernel + MockRuntimeDriver integration", () => {
 		});
 
 		it("create socket and close it", async () => {
-			const driver = new MockRuntimeDriver(["sh"], { sh: { exitCode: 0 } });
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
 			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const proc = kernel.spawn("cmd", []);
+			const pid = proc.pid;
 
-			const id = kernel.socketTable.create(2, 1, 0, 1); // AF_INET, SOCK_STREAM
+			const id = kernel.socketTable.create(2, 1, 0, pid); // AF_INET, SOCK_STREAM
 			expect(id).toBeGreaterThan(0);
 
 			const sock = kernel.socketTable.get(id);
 			expect(sock).toBeDefined();
 			expect(sock!.state).toBe("created");
 
-			kernel.socketTable.close(id, 1);
+			kernel.socketTable.close(id, pid);
 			expect(kernel.socketTable.get(id)).toBeNull();
+
+			proc.kill(9);
+			await proc.wait();
 		});
 
 		it("dispose cleans up all sockets", async () => {
-			const driver = new MockRuntimeDriver(["sh"], { sh: { exitCode: 0 } });
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
 			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const proc = kernel.spawn("cmd", []);
+			const pid = proc.pid;
 
-			const id1 = kernel.socketTable.create(2, 1, 0, 1);
-			const id2 = kernel.socketTable.create(2, 1, 0, 1);
+			const id1 = kernel.socketTable.create(2, 1, 0, pid);
+			const id2 = kernel.socketTable.create(2, 1, 0, pid);
 			expect(kernel.socketTable.get(id1)).not.toBeNull();
 			expect(kernel.socketTable.get(id2)).not.toBeNull();
 
@@ -5203,17 +5210,24 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			({ kernel } = await createTestKernel({ drivers: [driver] }));
 
 			const proc = kernel.spawn("cmd", []);
+			const otherProc = kernel.spawn("cmd", []);
 			const pid = proc.pid;
+			const otherPid = otherProc.pid;
 
 			// Create sockets owned by this process
 			const id1 = kernel.socketTable.create(2, 1, 0, pid);
 			const id2 = kernel.socketTable.create(2, 1, 0, pid);
-
-			// Create a socket owned by a different pid (should survive)
-			const otherId = kernel.socketTable.create(2, 1, 0, 99999);
+			const otherId = kernel.socketTable.create(2, 1, 0, otherPid);
 
 			expect(kernel.socketTable.get(id1)).toBeDefined();
 			expect(kernel.socketTable.get(id2)).toBeDefined();
+			expect(kernel.socketTable.get(otherId)).toBeDefined();
+			expect(() => kernel.socketTable.create(2, 1, 0, 99999)).toThrow();
+			try {
+				kernel.socketTable.create(2, 1, 0, 99999);
+			} catch (err) {
+				expect((err as { code?: string }).code).toBe("ESRCH");
+			}
 
 			// Kill the process — triggers onProcessExit → closeAllForProcess
 			proc.kill(9);
@@ -5222,20 +5236,27 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			// Sockets owned by the exited process should be cleaned up
 			expect(kernel.socketTable.get(id1)).toBeNull();
 			expect(kernel.socketTable.get(id2)).toBeNull();
-
-			// Socket owned by other pid should survive
 			expect(kernel.socketTable.get(otherId)).not.toBeNull();
+
+			otherProc.kill(9);
+			await otherProc.wait();
 		});
 
 		it("loopback TCP through kernel socket table", async () => {
-			const driver = new MockRuntimeDriver(["sh"], { sh: { exitCode: 0 } });
-			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const driver = new MockRuntimeDriver(["cmd"], { cmd: { neverExit: true } });
+			const permissions: Permissions = {
+				fs: () => ({ allow: true }),
+				network: () => ({ allow: true }),
+			};
+			({ kernel } = await createTestKernel({ drivers: [driver], permissions }));
+			const proc = kernel.spawn("cmd", []);
+			const pid = proc.pid;
 
-			const serverSock = kernel.socketTable.create(2, 1, 0, 1);
+			const serverSock = kernel.socketTable.create(2, 1, 0, pid);
 			await kernel.socketTable.bind(serverSock, { host: "127.0.0.1", port: 9090 });
 			await kernel.socketTable.listen(serverSock, 5);
 
-			const clientSock = kernel.socketTable.create(2, 1, 0, 1);
+			const clientSock = kernel.socketTable.create(2, 1, 0, pid);
 			await kernel.socketTable.connect(clientSock, { host: "127.0.0.1", port: 9090 });
 
 			const accepted = kernel.socketTable.accept(serverSock);
@@ -5245,6 +5266,9 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			kernel.socketTable.send(clientSock, new TextEncoder().encode("hello"));
 			const data = kernel.socketTable.recv(accepted!, 1024);
 			expect(new TextDecoder().decode(data!)).toBe("hello");
+
+			proc.kill(9);
+			await proc.wait();
 		});
 	});
 });

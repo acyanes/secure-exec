@@ -163,6 +163,7 @@ export class SocketTable {
 	private readonly hostAdapter?: HostNetworkAdapter;
 	private readonly vfs?: VirtualFileSystem;
 	private readonly getSignalState?: (pid: number) => ProcessSignalState;
+	private readonly processExists?: (pid: number) => boolean;
 
 	/** Bound/listening address → socket ID. Used for EADDRINUSE and TCP routing. */
 	private listeners: Map<string, number> = new Map();
@@ -176,12 +177,14 @@ export class SocketTable {
 		hostAdapter?: HostNetworkAdapter;
 		vfs?: VirtualFileSystem;
 		getSignalState?: (pid: number) => ProcessSignalState;
+		processExists?: (pid: number) => boolean;
 	}) {
 		this.maxSockets = options?.maxSockets ?? DEFAULT_MAX_SOCKETS;
 		this.networkCheck = options?.networkCheck;
 		this.hostAdapter = options?.hostAdapter;
 		this.vfs = options?.vfs;
 		this.getSignalState = options?.getSignalState;
+		this.processExists = options?.processExists;
 	}
 
 	/**
@@ -191,6 +194,9 @@ export class SocketTable {
 	create(domain: number, type: number, protocol: number, pid: number): number {
 		if (this.sockets.size >= this.maxSockets) {
 			throw new KernelError("EMFILE", "too many open sockets");
+		}
+		if (this.processExists && !this.processExists(pid)) {
+			throw new KernelError("ESRCH", `cannot create socket for unknown pid ${pid}`);
 		}
 
 		const id = this.nextSocketId++;

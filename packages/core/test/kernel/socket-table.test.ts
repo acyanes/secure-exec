@@ -48,6 +48,22 @@ describe("SocketTable", () => {
 		expect(sock!.remoteAddr).toBeUndefined();
 	});
 
+	it("create rejects unknown owner pids when process validation is configured", () => {
+		const table = new SocketTable({
+			processExists: (pid) => pid === 42,
+		});
+
+		expect(() => table.create(AF_INET, SOCK_STREAM, 0, 99)).toThrow(KernelError);
+		try {
+			table.create(AF_INET, SOCK_STREAM, 0, 99);
+		} catch (e) {
+			expect((e as KernelError).code).toBe("ESRCH");
+		}
+
+		const id = table.create(AF_INET, SOCK_STREAM, 0, 42);
+		expect(table.get(id)?.pid).toBe(42);
+	});
+
 	it("create supports AF_UNIX domain", () => {
 		const table = new SocketTable();
 		const id = table.create(AF_UNIX, SOCK_STREAM, 0, 1);

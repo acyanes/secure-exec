@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- Kernel-owned `SocketTable` instances must validate socket owner PIDs against the shared process table; only standalone/internal tables should omit that validation and stay opt-in.
 - `packages/wasmvm/src/driver.ts` resolves the worker entry to `packages/wasmvm/dist/kernel-worker.js` unless a sibling `src/kernel-worker.js` exists, so `packages/wasmvm/src/kernel-worker.ts` changes are not live until `pnpm --filter @secure-exec/wasmvm build` refreshes the worker bundle.
 - Replace active Node loader rewrites with parser-backed transforms: use `es-module-lexer` for `.js` module-syntax detection and `esbuild` CJS transforms with `supported: { "dynamic-import": false }` plus `define: { "import.meta.url": "__filename" }` so `require()` keeps module-relative `import()` behavior without touching strings/comments.
 - Standalone `NodeExecutionDriver` should always keep an internal `SocketTable` for sandbox loopback routing, but it must only attach `createNodeHostNetworkAdapter()` when `SystemDriver.network` is explicitly configured; otherwise omitted network capability silently regains host TCP access.
@@ -536,4 +537,14 @@
   - WasmVM signal ABI changes have to stay synchronized across four layers: the patched wasi-libc shim, `native/wasmvm/crates/wasi-ext/src/lib.rs`, `packages/wasmvm/src/kernel-worker.ts`, and `packages/wasmvm/src/driver.ts`; any drift silently drops signal metadata.
   - `packages/wasmvm/src/driver.ts` loads the compiled worker bundle, so source edits in `packages/wasmvm/src/kernel-worker.ts` do nothing until `pnpm --filter @secure-exec/wasmvm build` updates `dist/kernel-worker.js`.
   - `pnpm vitest run packages/wasmvm/test/c-parity.test.ts -t 'sigaction_behavior|syscall_coverage'` still exposes pre-existing broader parity issues in `syscall_coverage` and duplicate/truncated stdout capture, so the story was validated with focused WasmVM signal checks instead of treating that broader parity file as a gating signal.
+---
+## [2026-03-26 10:39 PDT] - US-038
+- Implemented kernel-mediated socket owner validation by making `SocketTable.create()` reject unknown PIDs with `ESRCH` when a process-table validator is configured, and wiring that validator from `KernelImpl`'s shared process table.
+- Replaced the stale fake-PID kernel integration behavior with regressions that prove unknown PID socket allocation is rejected while sockets owned by another live process survive unrelated process exit cleanup, and updated the socket-table unit coverage plus kernel contract and root agent guidance.
+- Verified the story with `pnpm vitest run packages/core/test/kernel/socket-table.test.ts -t "create rejects unknown owner pids when process validation is configured"`, `pnpm vitest run packages/core/test/kernel/kernel-integration.test.ts -t "create socket and close it|dispose cleans up all sockets|process exit cleans up sockets owned by that process|loopback TCP through kernel socket table"`, and `pnpm --filter @secure-exec/core check-types`.
+- Files changed: `.agent/contracts/kernel.md`, `AGENTS.md`, `packages/core/src/kernel/kernel.ts`, `packages/core/src/kernel/socket-table.ts`, `packages/core/test/kernel/kernel-integration.test.ts`, `packages/core/test/kernel/socket-table.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`
+- **Learnings for future iterations:**
+  - Kernel-level socket ownership is only meaningful if allocation is checked against the shared process table; storing `socket.pid` without validating the PID lets tests and runtime code create impossible ownership states.
+  - Keep PID validation opt-in on `SocketTable` itself so standalone/internal tables can stay lightweight, but always enable it from `KernelImpl` for the real kernel-owned socket table.
+  - Kernel integration tests that exercise socket allocation must either spawn a real process first or explicitly opt into permissive standalone `SocketTable` construction; hard-coded PIDs like `1` and `99999` are not valid in the kernel path anymore.
 ---

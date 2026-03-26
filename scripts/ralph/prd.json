@@ -848,7 +848,7 @@
         "Typecheck passes"
       ],
       "priority": 38,
-      "passes": false,
+      "passes": true,
       "notes": "Current integration tests intentionally create sockets for nonexistent PID 99999, which undermines the ownership semantics claimed in the prior PRD."
     },
     {
