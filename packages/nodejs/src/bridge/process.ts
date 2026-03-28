@@ -631,8 +631,15 @@ function finishLiveStdin(): void {
   syncLiveStdinHandle(false);
 }
 
+declare const __runtimeStreamStdin: boolean | undefined;
+function _getStreamStdin(): boolean {
+  return typeof __runtimeStreamStdin !== "undefined" && !!__runtimeStreamStdin;
+}
+
 function ensureLiveStdinStarted(): void {
-  if (_stdinLiveStarted || !_getStdinIsTTY()) return;
+  if (_stdinLiveStarted) return;
+  if (!_getStdinIsTTY() && !_getStreamStdin()) return;
+  if (typeof _kernelStdinRead === "undefined") return;
   _stdinLiveStarted = true;
   syncLiveStdinHandle(!(_stdin as StdinStream).paused);
   void (async () => {
@@ -715,7 +722,7 @@ const _stdin: StdinStream = {
     if (!_stdinListeners[event]) _stdinListeners[event] = [];
     _stdinListeners[event].push(listener);
 
-    if (_getStdinIsTTY() && (event === "data" || event === "end" || event === "close")) {
+    if ((_getStdinIsTTY() || _getStreamStdin()) && (event === "data" || event === "end" || event === "close")) {
       ensureLiveStdinStarted();
     }
     if (event === "data" && this.paused) {
@@ -767,7 +774,7 @@ const _stdin: StdinStream = {
   },
 
   resume(): StdinStream {
-    if (_getStdinIsTTY()) {
+    if (_getStdinIsTTY() || _getStreamStdin()) {
       ensureLiveStdinStarted();
       syncLiveStdinHandle(true);
     }

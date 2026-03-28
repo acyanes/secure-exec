@@ -672,6 +672,7 @@ class KernelImpl implements Kernel {
 			stdinIsTTY,
 			stdoutIsTTY,
 			stderrIsTTY,
+			streamStdin: options?.streamStdin,
 			onStdout: stdoutCb,
 			onStderr: stderrCb,
 		};

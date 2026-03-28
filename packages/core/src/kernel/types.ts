@@ -138,6 +138,8 @@ export interface SpawnOptions extends ExecOptions {
 	stdoutFd?: number;
 	/** FD in caller's table to wire as child's stderr (pipe write end). */
 	stderrFd?: number;
+	/** Enable streaming stdin: writeStdin() delivers data immediately instead of buffering until closeStdin(). */
+	streamStdin?: boolean;
 }
 
 export interface ManagedProcess {
@@ -241,6 +243,8 @@ export interface ProcessContext {
 	stdinIsTTY?: boolean;
 	stdoutIsTTY?: boolean;
 	stderrIsTTY?: boolean;
+	/** Enable streaming stdin delivery (writeStdin data arrives immediately). */
+	streamStdin?: boolean;
 	/** Kernel-provided callback for stdout data emitted during spawn. */
 	onStdout?: (data: Uint8Array) => void;
 	/** Kernel-provided callback for stderr data emitted during spawn. */

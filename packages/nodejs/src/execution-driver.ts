@@ -1241,6 +1241,7 @@ export class NodeExecutionDriver implements RuntimeDriver {
 					maxTimers: s.maxTimers,
 					maxHandles: s.maxHandles,
 					stdin: options.stdin,
+					streamStdin: !!s.liveStdinSource && !execProcessConfig.stdinIsTTY,
 				},
 				timingMitigation,
 				frozenTimeMs,
@@ -1421,6 +1422,7 @@ function buildPostRestoreScript(
 		maxTimers?: number;
 		maxHandles?: number;
 		stdin?: string;
+		streamStdin?: boolean;
 	},
 	timingMitigation: TimingMitigation,
 	frozenTimeMs: number,
@@ -1467,6 +1469,11 @@ function buildPostRestoreScript(
 			cols: processConfig.cols,
 			rows: processConfig.rows,
 		})};`);
+	}
+
+	// Enable streaming stdin for non-TTY processes that need live stdin delivery
+	if (bridgeConfig.streamStdin) {
+		parts.push(`globalThis.__runtimeStreamStdin = true;`);
 	}
 
 	// Inject timer/handle limits

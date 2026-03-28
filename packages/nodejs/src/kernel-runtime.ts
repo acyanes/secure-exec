@@ -408,43 +408,88 @@ class NodeRuntimeDriver implements RuntimeDriver {
       proc.onExit?.(exitCode);
     };
 
-    // Stdin buffering — writeStdin collects data, closeStdin resolves the promise
-    const stdinChunks: Uint8Array[] = [];
-    let stdinResolve: ((data: string | undefined) => void) | null = null;
-    const stdinPromise = new Promise<string | undefined>((resolve) => {
-      stdinResolve = resolve;
-      // Auto-resolve on next microtask if nobody calls writeStdin
-      queueMicrotask(() => {
-        if (stdinChunks.length === 0 && stdinResolve) {
-          stdinResolve = null;
-          resolve(undefined);
+    // Stdin plumbing — streaming mode delivers data immediately; batch mode buffers until closeStdin
+    let stdinLiveSource: LiveStdinSource | undefined;
+    let batchStdinChunks: Uint8Array[] | undefined;
+    let batchStdinResolve: ((data: string | undefined) => void) | null = null;
+    let batchStdinPromise: Promise<string | undefined> | undefined;
+
+    if (ctx.streamStdin) {
+      // Streaming mode: writeStdin delivers data to the running process immediately
+      const stdinQueue: Uint8Array[] = [];
+      let stdinClosed = false;
+      let stdinWaiter: ((value: Uint8Array | null) => void) | null = null;
+
+      stdinLiveSource = {
+        read(): Promise<Uint8Array | null> {
+          if (stdinQueue.length > 0) {
+            return Promise.resolve(stdinQueue.shift()!);
+          }
+          if (stdinClosed) {
+            return Promise.resolve(null);
+          }
+          return new Promise<Uint8Array | null>((resolve) => {
+            stdinWaiter = resolve;
+          });
+        },
+      };
+
+      var streamWriteStdin = (data: Uint8Array) => {
+        if (stdinClosed) return;
+        if (stdinWaiter) {
+          const resolve = stdinWaiter;
+          stdinWaiter = null;
+          resolve(data);
+        } else {
+          stdinQueue.push(data);
         }
+      };
+      var streamCloseStdin = () => {
+        if (stdinClosed) return;
+        stdinClosed = true;
+        if (stdinWaiter) {
+          const resolve = stdinWaiter;
+          stdinWaiter = null;
+          resolve(null);
+        }
+      };
+    } else {
+      // Batch mode (default): buffer all stdin data until closeStdin is called
+      batchStdinChunks = [];
+      batchStdinPromise = new Promise<string | undefined>((resolve) => {
+        batchStdinResolve = resolve;
+        queueMicrotask(() => {
+          if (batchStdinChunks!.length === 0 && batchStdinResolve) {
+            batchStdinResolve = null;
+            resolve(undefined);
+          }
+        });
       });
-    });
+    }
 
     const proc: DriverProcess = {
       onStdout: null,
       onStderr: null,
       onExit: null,
-      writeStdin: (data: Uint8Array) => {
-        stdinChunks.push(data);
-      },
-      closeStdin: () => {
-        if (stdinResolve) {
-          if (stdinChunks.length === 0) {
-            // No data written — pass undefined (no stdin), not empty string
-            stdinResolve(undefined);
-          } else {
-            // Concatenate buffered chunks and decode to string for exec()
-            const totalLen = stdinChunks.reduce((sum, c) => sum + c.length, 0);
-            const merged = new Uint8Array(totalLen);
-            let offset = 0;
-            for (const chunk of stdinChunks) { merged.set(chunk, offset); offset += chunk.length; }
-            stdinResolve(new TextDecoder().decode(merged));
-          }
-          stdinResolve = null;
-        }
-      },
+      writeStdin: ctx.streamStdin
+        ? (data: Uint8Array) => streamWriteStdin(data)
+        : (data: Uint8Array) => { batchStdinChunks!.push(data); },
+      closeStdin: ctx.streamStdin
+        ? () => streamCloseStdin()
+        : () => {
+            if (batchStdinResolve) {
+              if (batchStdinChunks!.length === 0) {
+                batchStdinResolve(undefined);
+              } else {
+                const totalLen = batchStdinChunks!.reduce((sum, c) => sum + c.length, 0);
+                const merged = new Uint8Array(totalLen);
+                let offset = 0;
+                for (const chunk of batchStdinChunks!) { merged.set(chunk, offset); offset += chunk.length; }
+                batchStdinResolve(new TextDecoder().decode(merged));
+              }
+              batchStdinResolve = null;
+            }
+          },
       kill: (signal: number) => {
         if (exitResolved) return;
         const normalizedSignal = signal > 0 ? signal : 15;
@@ -469,7 +514,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
     };
 
     // Launch async — spawn() returns synchronously per RuntimeDriver contract
-    this._executeAsync(command, args, ctx, proc, resolveExit, stdinPromise, () => killedSignal);
+    this._executeAsync(command, args, ctx, proc, resolveExit, stdinLiveSource, batchStdinPromise, () => killedSignal);
 
     return proc;
   }
@@ -492,7 +537,8 @@ class NodeRuntimeDriver implements RuntimeDriver {
     ctx: ProcessContext,
     proc: DriverProcess,
     resolveExit: (code: number) => void,
-    stdinPromise: Promise<string | undefined>,
+    liveStdinSource: LiveStdinSource | undefined,
+    batchStdinPromise: Promise<string | undefined> | undefined,
     getKilledSignal: () => number | null,
   ): Promise<void> {
     const kernel = this._kernel!;
@@ -501,8 +547,6 @@ class NodeRuntimeDriver implements RuntimeDriver {
       // Resolve the code to execute
       const { code, filePath } = await this._resolveEntry(command, args, kernel);
 
-      // Wait for stdin data (resolves immediately if no writeStdin called)
-      const stdinData = await stdinPromise;
       if (getKilledSignal() !== null) {
         return;
       }
@@ -565,7 +609,8 @@ class NodeRuntimeDriver implements RuntimeDriver {
             });
           }
         : undefined;
-      const liveStdinSource: LiveStdinSource | undefined = stdinIsTTY
+      // Determine live stdin source: PTY uses kernel fd reads, streaming mode uses the queue
+      const effectiveStdinSource: LiveStdinSource | undefined = stdinIsTTY
         ? {
             async read() {
               try {
@@ -576,7 +621,16 @@ class NodeRuntimeDriver implements RuntimeDriver {
               }
             },
           }
-        : undefined;
+        : liveStdinSource;
+
+      // For batch mode, wait for stdin data before starting the isolate
+      let stdinData: string | undefined;
+      if (batchStdinPromise) {
+        stdinData = await batchStdinPromise;
+        if (getKilledSignal() !== null) {
+          return;
+        }
+      }
 
       // Create a per-process isolate with kernel socket routing
       const executionDriver = new NodeExecutionDriver({
@@ -589,7 +643,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
         processTable: kernel.processTable,
         timerTable: kernel.timerTable,
         pid: ctx.pid,
-        liveStdinSource,
+        liveStdinSource: effectiveStdinSource,
       });
       this._activeDrivers.set(ctx.pid, executionDriver);
       const killedSignal = getKilledSignal();
@@ -603,7 +657,7 @@ class NodeRuntimeDriver implements RuntimeDriver {
         return;
       }
 
-      // Execute with stdout/stderr capture and stdin data
+      // Execute with stdout/stderr capture
       const result = await executionDriver.exec(code, {
         filePath,
         env: ctx.env,
