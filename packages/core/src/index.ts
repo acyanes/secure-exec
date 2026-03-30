@@ -298,6 +298,7 @@ export type {
 	FsBlockStore,
 } from "./vfs/types.js";
 export { InMemoryMetadataStore } from "./vfs/memory-metadata.js";
+export { InMemoryBlockStore } from "./vfs/memory-block-store.js";
 
 // Filesystem helpers.
 export type { DirEntry, StatInfo } from "./fs-helpers.js";
