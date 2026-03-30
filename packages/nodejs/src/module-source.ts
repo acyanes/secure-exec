@@ -265,8 +265,7 @@ export function transformSourceForRequireSync(
 
 	try {
 		return transformSync(normalizedSource, getRequireTransformOptions(filePath, syntax)).code;
-	} catch (e) {
-		console.error(`[transformSourceForRequireSync] FAILED for ${filePath}: ${(e as Error).message?.slice(0, 200)}`);
+	} catch {
 		return normalizedSource;
 	}
 }

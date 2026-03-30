@@ -3312,12 +3312,23 @@ export function buildModuleLoadingBridgeHandlers(
 	// V8 ESM module resolve sends the full file path as referrer, not a directory.
 	// Extract dirname when the referrer looks like a file path.
 	// Falls back to Node.js require.resolve() with realpath for pnpm compatibility.
+	let _resolveCount = 0;
+	let _resolveStart = Date.now();
+	const _resolveTimer = setInterval(() => {
+		if (_resolveCount > 0) {
+			console.error(`[resolveModule] ${_resolveCount} calls in last 2s (${Date.now() - _resolveStart}ms total)`);
+			_resolveCount = 0;
+		}
+	}, 2000);
+	if (_resolveTimer.unref) _resolveTimer.unref();
+
 	handlers[K.resolveModule] = async (
 		request: unknown,
 		fromDir: unknown,
 		requestedMode?: unknown,
 	): Promise<string | null> => {
 		const req = String(request);
+		_resolveCount++;
 		const resolveMode =
 			requestedMode === "require" || requestedMode === "import"
 				? requestedMode

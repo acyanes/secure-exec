@@ -554,8 +554,7 @@ fn session_thread(
                             pending.len() > 0
                             || execution::has_pending_module_evaluation()
                             || execution::has_pending_script_evaluation()
-                            || !deferred_queue.lock().unwrap().is_empty()
-                            || mode != 0; // Always pump for ESM modules
+                            || !deferred_queue.lock().unwrap().is_empty();
                         let event_loop_status = if should_enter_event_loop {
                                 eprintln!("[v8-runtime] entering event loop: pending={} module_eval={} script_eval={} deferred={} esm={}",
                                     pending.len(),
@@ -602,6 +601,10 @@ fn session_thread(
                         // the session alive while handles (timers, child processes,
                         // stdin listeners) are active. This creates a pending promise
                         // that the event loop pumps until all handles resolve.
+                        eprintln!("[v8-runtime] post-eval: terminated={} mode={} error={} code={}", terminated, mode, error.is_some(), code);
+                        if let Some(ref err) = error {
+                            eprintln!("[v8-runtime] error: type={} message={}", err.error_type, &err.message[..std::cmp::min(err.message.len(), 200)]);
+                        }
                         if !terminated && mode != 0 && error.is_none() {
                             // Phase 1: call _waitForActiveHandles() to register a pending promise
                             {
