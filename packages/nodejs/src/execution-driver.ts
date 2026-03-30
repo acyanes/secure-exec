@@ -1041,6 +1041,13 @@ export class NodeExecutionDriver implements RuntimeDriver {
 		// through the bridge. Dynamic import() in CJS mode goes through the
 		// require-setup's __dynamicImportHandler which uses _requireFrom and
 		// properly resolves packages via the bridge.
+		// For ESM entry scripts loaded from module access overlay paths,
+		// use CJS exec mode with a dynamic import() wrapper instead of V8's
+		// native ESM "run" mode. The native ESM resolver makes a synchronous
+		// IPC call per import, which is prohibitively slow for packages with
+		// large dependency trees (e.g., PI has hundreds of @sinclair/typebox
+		// sub-modules). CJS mode uses the in-process require-setup transform
+		// which is orders of magnitude faster.
 		const sessionMode = options.mode === "run" || entryIsEsm ? "run" : "exec";
 		const userCode = entryIsEsm
 			? options.code
