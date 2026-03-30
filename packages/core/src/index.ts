@@ -287,6 +287,18 @@ export {
 export { POLYFILL_CODE_MAP } from "./generated/polyfills.js";
 
 
+// VFS storage layer (FsMetadataStore, FsBlockStore, ChunkedVFS).
+export type {
+	InodeType,
+	CreateInodeAttrs,
+	InodeMeta,
+	DentryInfo,
+	DentryStatInfo,
+	FsMetadataStore,
+	FsBlockStore,
+} from "./vfs/types.js";
+export { InMemoryMetadataStore } from "./vfs/memory-metadata.js";
+
 // Filesystem helpers.
 export type { DirEntry, StatInfo } from "./fs-helpers.js";
 export { exists, stat, rename, readDirWithTypes, mkdir } from "./fs-helpers.js";

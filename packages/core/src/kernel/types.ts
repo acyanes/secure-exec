@@ -544,6 +544,7 @@ export type KernelErrorCode =
 	| "EINTR"
 	| "EEXIST"
 	| "EINVAL"
+	| "ELOOP"
 	| "EIO"
 	| "EISDIR"
 	| "EMFILE"
