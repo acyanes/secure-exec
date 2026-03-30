@@ -3086,7 +3086,6 @@ export function buildModuleResolutionBridgeHandlers(
 		}
 
 		// Try require.resolve first
-		if (req === "undici") console.error(`[DEBUG resolve undici] hostDir=${hostDir} sandboxDir=${sandboxDir} referrer=${referrer}`);
 		try {
 			const resolved = hostRequire.resolve(req, { paths: [hostDir] });
 			return deps.hostToSandboxPath(resolved);
@@ -3109,6 +3108,13 @@ export function buildModuleResolutionBridgeHandlers(
 			const resolved = resolveFromExports(realDir);
 			if (resolved) return resolved;
 		} catch { /* fallback failed */ }
+
+		// Last resort: try resolving from the host process itself (no path restrictions).
+		// This handles Node.js-bundled packages like undici that aren't in node: namespace.
+		try {
+			const resolved = hostRequire.resolve(req);
+			return deps.hostToSandboxPath(resolved);
+		} catch { /* truly not found */ }
 		return null;
 	};
 
