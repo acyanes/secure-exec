@@ -1035,6 +1035,12 @@ export class NodeExecutionDriver implements RuntimeDriver {
 			options.code,
 			options.filePath,
 		);
+		// For ESM entry scripts, wrap in a CJS dynamic import() launcher instead
+		// of using V8's native ESM "run" mode. The native ESM module resolver in
+		// the V8 isolate doesn't resolve non-builtin packages (undici, chalk, etc.)
+		// through the bridge. Dynamic import() in CJS mode goes through the
+		// require-setup's __dynamicImportHandler which uses _requireFrom and
+		// properly resolves packages via the bridge.
 		const sessionMode = options.mode === "run" || entryIsEsm ? "run" : "exec";
 		const userCode = entryIsEsm
 			? options.code
