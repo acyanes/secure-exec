@@ -392,6 +392,33 @@ export class SQLiteFileSystem implements VirtualFileSystem {
 		return data.slice(offset, offset + length);
 	}
 
+	async pwrite(path: string, offset: number, data: Uint8Array): Promise<void> {
+		const resolved = this.#resolveSymlink(path);
+		const row = this.#getEntry(resolved);
+		const existing = row && !row.is_dir
+			? new Uint8Array(row.content as Uint8Array)
+			: new Uint8Array(0);
+		const needed = offset + data.byteLength;
+		const buf = new Uint8Array(Math.max(existing.byteLength, needed));
+		buf.set(existing);
+		buf.set(data, offset);
+		const now = Date.now();
+		if (row) {
+			this.db.run(
+				`UPDATE entries SET content = ?, mtime_ms = ?, ctime_ms = ? WHERE path = ?`,
+				[buf, now, now, resolved],
+			);
+		} else {
+			await this.mkdir(dirname(resolved));
+			this.db.run(
+				`INSERT INTO entries
+				(path, content, mode, is_dir, atime_ms, mtime_ms, ctime_ms, birthtime_ms)
+				VALUES (?, ?, 33188, 0, ?, ?, ?, ?)`,
+				[resolved, buf, now, now, now, now],
+			);
+		}
+	}
+
 	close() {
 		this.db.close();
 	}

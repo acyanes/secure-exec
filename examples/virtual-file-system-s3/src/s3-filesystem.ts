@@ -458,6 +458,20 @@ export class S3FileSystem implements VirtualFileSystem {
 		const data = await this.readFile(path);
 		return data.slice(offset, offset + length);
 	}
+
+	async pwrite(path: string, offset: number, data: Uint8Array): Promise<void> {
+		let existing: Uint8Array;
+		try {
+			existing = await this.readFile(path);
+		} catch {
+			existing = new Uint8Array(0);
+		}
+		const needed = offset + data.byteLength;
+		const buf = new Uint8Array(Math.max(existing.byteLength, needed));
+		buf.set(existing);
+		buf.set(data, offset);
+		await this.writeFile(path, buf);
+	}
 }
 
 function isNotFound(err: unknown): boolean {

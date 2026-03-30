@@ -303,6 +303,7 @@ export { SqliteMetadataStore } from "./vfs/sqlite-metadata.js";
 export type { SqliteMetadataStoreOptions } from "./vfs/sqlite-metadata.js";
 export { createChunkedVfs } from "./vfs/chunked-vfs.js";
 export type { ChunkedVfsOptions } from "./vfs/chunked-vfs.js";
+export { HostBlockStore } from "./vfs/host-block-store.js";
 
 // VFS conformance test suite.
 export { defineVfsConformanceTests } from "./test/vfs-conformance.js";
